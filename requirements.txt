@@ -1,0 +1,20 @@
+flask>=3.0.0
+flask-cors>=4.0.0
+kokoro>=0.9.4
+soundfile>=0.12.1
+numpy>=1.24.0
+pydub>=0.25.1
+replicate>=0.25.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+# Note: torch, torchvision, and torchaudio are installed by setup.bat with proper CUDA detection
+
+# Extra language-specific dependencies
+pyopenjtalk
+ordered-set
+fugashi[unidic-lite]
+pypinyin
+jaconv
+cn2an
+mojimoji
+jieba

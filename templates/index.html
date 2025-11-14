@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kokoro-Story - Multi-Voice TTS</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=9">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎭 Kokoro-Story</h1>
+            <p>Multi-Voice Text-to-Speech for Stories and Audiobooks</p>
+            <div class="status-bar">
+                <span id="mode-indicator">Mode: <strong id="current-mode">Loading...</strong></span>
+                <span id="cuda-indicator">CUDA: <strong id="cuda-status">Checking...</strong></span>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-button active" data-tab="generate">Generate</button>
+            <button class="tab-button" data-tab="queue">Job Queue</button>
+            <button class="tab-button" data-tab="library">Library</button>
+            <button class="tab-button" data-tab="voices">Available Voices</button>
+            <button class="tab-button" data-tab="settings">Settings</button>
+        </div>
+
+        <!-- Generate Tab -->
+        <div id="generate-tab" class="tab-content active">
+            <div class="section">
+                <h2>Input Text</h2>
+                <p class="help-text">
+                    Enter your text below. Use speaker tags like <code>[narrator]text[/narrator]</code> or 
+                    <code>[speaker1]text[/speaker1]</code> for multi-voice stories, or plain text for single voice.
+                    You can use any name: <code>[alice]</code>, <code>[bob]</code>, <code>[narrator]</code>, etc.
+                </p>
+                <textarea 
+                    id="input-text" 
+                    placeholder="[narrator]Once upon a time...[/narrator]&#10;[alice]Hello, I'm Alice![/alice]&#10;[bob]And I'm Bob![/bob]"
+                    rows="15"
+                ></textarea>
+                
+                <div class="section" style="margin-top: 15px; padding: 20px; background: #2c3e50; border-radius: 8px; border: 2px solid #3498db;">
+                    <h3 style="margin-top: 0; color: #fff; font-size: 18px;">🎤 Default Voice</h3>
+                    <p style="margin-bottom: 15px; color: #ecf0f1; font-size: 14px;">
+                        Select a default voice for plain text or unassigned speakers.
+                    </p>
+                    <select id="default-voice-select" class="voice-select" style="width: 100%; max-width: 400px; padding: 10px; font-size: 16px;">
+                        <option value="">Select Default Voice...</option>
+                    </select>
+                </div>
+                
+                <div class="button-group">
+                    <button id="generate-btn" class="btn btn-primary">Generate Audio</button>
+                </div>
+                <div id="queue-indicator" class="queue-indicator" style="display: none;">
+                    0 processing, 0 queued
+                </div>
+            </div>
+
+            <div id="stats-section" class="section" style="display: none;">
+                <h2>Text Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Speakers</div>
+                        <div class="stat-value" id="stat-speakers">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Total Chunks</div>
+                        <div class="stat-value" id="stat-chunks">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Word Count</div>
+                        <div class="stat-value" id="stat-words">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Est. Duration</div>
+                        <div class="stat-value" id="stat-duration">0:00</div>
+                    </div>
+                </div>
+                <div id="speakers-list"></div>
+                <div id="inline-voice-assignments" style="display: none; margin-top: 20px;">
+                    <h3>Assign Voices</h3>
+                    <div id="inline-voice-assignment-list"></div>
+                </div>
+            </div>
+
+            <div class="section" style="margin-top: 20px; padding: 15px; background: rgba(99, 102, 241, 0.05); border-radius: 8px;">
+                <p style="margin: 0; color: var(--text-muted); text-align: center;">
+                    💡 <strong>Tip:</strong> You can submit multiple jobs! Check the <strong>Job Queue</strong> tab to monitor all your generations.
+                </p>
+            </div>
+
+            <div id="latest-audio-container" class="section" style="margin-top: 20px; display: none;">
+                <h2>Latest Audio</h2>
+                <p id="latest-audio-label" class="help-text">
+                    Most recently completed job.
+                </p>
+                <audio id="latest-audio-player" controls style="width: 100%; max-width: 600px;"></audio>
+            </div>
+        </div>
+
+        <!-- Job Queue Tab -->
+        <div id="queue-tab" class="tab-content">
+            <div class="section">
+                <h2>Job Queue</h2>
+                <p class="help-text">
+                    Monitor all audio generation jobs. Jobs are processed sequentially in the order they were submitted.
+                </p>
+                <div class="button-group" style="margin-bottom: 20px;">
+                    <button id="refresh-queue-btn" class="btn btn-secondary">Refresh Queue</button>
+                </div>
+                <div id="queue-list"></div>
+            </div>
+        </div>
+
+        <!-- Library Tab -->
+        <div id="library-tab" class="tab-content">
+            <div class="section">
+                <h2>Audio Library</h2>
+                <p class="help-text">
+                    Manage your generated audio files. Play, download, or delete previous generations.
+                </p>
+                <div class="button-group">
+                    <button id="refresh-library-btn" class="btn btn-secondary">Refresh Library</button>
+                    <button id="clear-library-btn" class="btn btn-secondary">Clear All</button>
+                </div>
+            </div>
+
+            <div id="library-list" class="section">
+                <div id="library-items"></div>
+                <p id="library-empty" style="display: none; text-align: center; color: var(--text-muted); padding: 40px;">
+                    No audio files in library yet. Generate some audio to get started!
+                </p>
+            </div>
+        </div>
+
+        <!-- Available Voices Tab -->
+        <div id="voices-tab" class="tab-content">
+            <div class="section">
+                <h2>Available Voices</h2>
+                <p class="help-text">
+                    Explore all Kokoro voices. Click any voice to hear a preview sample.
+                </p>
+                <div id="voice-sample-status" class="sample-status info" style="margin-bottom: 15px;">
+                    Loading voice preview status...
+                </div>
+                <div id="voice-sample-controls" class="sample-controls">
+                    <button id="generate-voice-samples-btn" class="btn btn-primary" onclick="generateSamples(false)">
+                        Generate Voice Previews
+                    </button>
+                    <button class="btn btn-secondary" onclick="generateSamples(true)">
+                        Regenerate (Overwrite)
+                    </button>
+                </div>
+                <div id="voice-library"></div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings-tab" class="tab-content">
+            <div class="section">
+                <h2>Processing Mode</h2>
+                <div class="form-group">
+                    <label>
+                        <input type="radio" name="mode" value="local" checked>
+                        Local GPU (Requires Kokoro installed)
+                    </label>
+                    <label>
+                        <input type="radio" name="mode" value="replicate">
+                        Replicate API (Cloud-based)
+                    </label>
+                </div>
+            </div>
+
+            <div class="section" id="replicate-settings" style="display: none;">
+                <h2>Replicate API Settings</h2>
+                <div class="form-group">
+                    <label for="api-key">API Key</label>
+                    <input type="password" id="api-key" placeholder="r8_...">
+                    <small>Get your API key from <a href="https://replicate.com" target="_blank">replicate.com</a></small>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Generation Settings</h2>
+                <div class="form-group">
+                    <label for="chunk-size">Chunk Size (words)</label>
+                    <input type="number" id="chunk-size" value="500" min="100" max="1000" step="50">
+                    <small>Smaller chunks = more API calls but better memory usage</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="speed">Speech Speed</label>
+                    <input type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0">
+                    <span id="speed-value">1.0x</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="output-format">Output Format</label>
+                    <select id="output-format">
+                        <option value="mp3">MP3</option>
+                        <option value="wav">WAV</option>
+                        <option value="ogg">OGG</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="crossfade">Crossfade Duration (seconds)</label>
+                    <input type="number" id="crossfade" value="0.1" min="0" max="1" step="0.05">
+                    <small>Smooth transition between audio chunks</small>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
+                <button id="reset-settings-btn" class="btn btn-secondary">Reset to Defaults</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/main.js?v=16"></script>
+    <script src="/static/js/queue.js?v=2"></script>
+    <script src="/static/js/library.js?v=6"></script>
+    <script src="/static/js/voice-manager.js?v=6"></script>
+    <script src="/static/js/settings.js?v=6"></script>
+</body>
+</html>

@@ -1,0 +1,237 @@
+{
+  "af_alloy": {
+    "file": "/static/samples/af_alloy.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "af_aoede": {
+    "file": "/static/samples/af_aoede.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "af_bella": {
+    "file": "/static/samples/af_bella.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "af_heart": {
+    "file": "/static/samples/af_heart.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "af_jessica": {
+    "file": "/static/samples/af_jessica.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "af_kore": {
+    "file": "/static/samples/af_kore.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "af_nicole": {
+    "file": "/static/samples/af_nicole.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "af_nova": {
+    "file": "/static/samples/af_nova.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "af_river": {
+    "file": "/static/samples/af_river.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "af_sarah": {
+    "file": "/static/samples/af_sarah.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "af_sky": {
+    "file": "/static/samples/af_sky.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "am_adam": {
+    "file": "/static/samples/am_adam.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "am_echo": {
+    "file": "/static/samples/am_echo.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "am_eric": {
+    "file": "/static/samples/am_eric.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "am_fenrir": {
+    "file": "/static/samples/am_fenrir.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "am_liam": {
+    "file": "/static/samples/am_liam.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "am_michael": {
+    "file": "/static/samples/am_michael.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "am_onyx": {
+    "file": "/static/samples/am_onyx.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "am_puck": {
+    "file": "/static/samples/am_puck.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "am_santa": {
+    "file": "/static/samples/am_santa.wav",
+    "lang_code": "a",
+    "language_key": "american_english"
+  },
+  "bf_alice": {
+    "file": "/static/samples/bf_alice.wav",
+    "lang_code": "b",
+    "language_key": "british_english"
+  },
+  "bf_emma": {
+    "file": "/static/samples/bf_emma.wav",
+    "lang_code": "b",
+    "language_key": "british_english"
+  },
+  "bf_isabella": {
+    "file": "/static/samples/bf_isabella.wav",
+    "lang_code": "b",
+    "language_key": "british_english"
+  },
+  "bf_lily": {
+    "file": "/static/samples/bf_lily.wav",
+    "lang_code": "b",
+    "language_key": "british_english"
+  },
+  "bm_daniel": {
+    "file": "/static/samples/bm_daniel.wav",
+    "lang_code": "b",
+    "language_key": "british_english"
+  },
+  "bm_fable": {
+    "file": "/static/samples/bm_fable.wav",
+    "lang_code": "b",
+    "language_key": "british_english"
+  },
+  "bm_george": {
+    "file": "/static/samples/bm_george.wav",
+    "lang_code": "b",
+    "language_key": "british_english"
+  },
+  "bm_lewis": {
+    "file": "/static/samples/bm_lewis.wav",
+    "lang_code": "b",
+    "language_key": "british_english"
+  },
+  "ef_dora": {
+    "file": "/static/samples/ef_dora.wav",
+    "lang_code": "e",
+    "language_key": "spanish"
+  },
+  "em_alex": {
+    "file": "/static/samples/em_alex.wav",
+    "lang_code": "e",
+    "language_key": "spanish"
+  },
+  "em_santa": {
+    "file": "/static/samples/em_santa.wav",
+    "lang_code": "e",
+    "language_key": "spanish"
+  },
+  "ff_siwis": {
+    "file": "/static/samples/ff_siwis.wav",
+    "lang_code": "f",
+    "language_key": "french"
+  },
+  "hf_alpha": {
+    "file": "/static/samples/hf_alpha.wav",
+    "lang_code": "h",
+    "language_key": "hindi"
+  },
+  "hf_beta": {
+    "file": "/static/samples/hf_beta.wav",
+    "lang_code": "h",
+    "language_key": "hindi"
+  },
+  "hm_omega": {
+    "file": "/static/samples/hm_omega.wav",
+    "lang_code": "h",
+    "language_key": "hindi"
+  },
+  "jf_alpha": {
+    "file": "/static/samples/jf_alpha.wav",
+    "lang_code": "j",
+    "language_key": "japanese"
+  },
+  "jf_gongitsune": {
+    "file": "/static/samples/jf_gongitsune.wav",
+    "lang_code": "j",
+    "language_key": "japanese"
+  },
+  "jf_nezumi": {
+    "file": "/static/samples/jf_nezumi.wav",
+    "lang_code": "j",
+    "language_key": "japanese"
+  },
+  "jf_tebukuro": {
+    "file": "/static/samples/jf_tebukuro.wav",
+    "lang_code": "j",
+    "language_key": "japanese"
+  },
+  "jm_kumo": {
+    "file": "/static/samples/jm_kumo.wav",
+    "lang_code": "j",
+    "language_key": "japanese"
+  },
+  "pf_dora": {
+    "file": "/static/samples/pf_dora.wav",
+    "lang_code": "p",
+    "language_key": "brazilian_portuguese"
+  },
+  "pm_alex": {
+    "file": "/static/samples/pm_alex.wav",
+    "lang_code": "p",
+    "language_key": "brazilian_portuguese"
+  },
+  "pm_santa": {
+    "file": "/static/samples/pm_santa.wav",
+    "lang_code": "p",
+    "language_key": "brazilian_portuguese"
+  },
+  "zf_xiaobei": {
+    "file": "/static/samples/zf_xiaobei.wav",
+    "lang_code": "z",
+    "language_key": "chinese"
+  },
+  "zf_xiaoni": {
+    "file": "/static/samples/zf_xiaoni.wav",
+    "lang_code": "z",
+    "language_key": "chinese"
+  },
+  "zf_xiaoxiao": {
+    "file": "/static/samples/zf_xiaoxiao.wav",
+    "lang_code": "z",
+    "language_key": "chinese"
+  },
+  "zf_xiaoyi": {
+    "file": "/static/samples/zf_xiaoyi.wav",
+    "lang_code": "z",
+    "language_key": "chinese"
+  }
+}
