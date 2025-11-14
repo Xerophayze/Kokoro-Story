@@ -1,8 +1,17 @@
 # Kokoro-Story
 
 A web-based Text-to-Speech application powered by Kokoro-82M, supporting both local GPU inference and Replicate API for generating multi-voice audiobooks and stories.
-[Multi Voice Example 1](https://github.com/user-attachments/files/23541959/kokoro_story_17d9a6ed-ddb8-45b1-9c24-99c55ca4b045.mp3)
-[Multi Voice Example 2](https://github.com/user-attachments/files/23541960/kokoro_story_ba5d19be-4b74-4a34-9020-16ba28a78a24.mp3)
+<p><strong>Multi‑Voice Example 1</strong></p>
+<audio controls preload="none">
+  <source src="https://github.com/user-attachments/files/23541959/kokoro_story_17d9a6ed-ddb8-45b1-9c24-99c55ca4b045.mp3" type="audio/mpeg">
+  Your browser does not support the audio element.
+</audio>
+
+<p><strong>Multi‑Voice Example 2</strong></p>
+<audio controls preload="none">
+  <source src="https://github.com/user-attachments/files/23541960/kokoro_story_ba5d19be-4b74-4a34-9020-16ba28a78a24.mp3" type="audio/mpeg">
+  Your browser does not support the audio element.
+</audio>
 
 ## Features
 
