@@ -1,0 +1,9 @@
+{
+  "mode": "local",
+  "replicate_api_key": "",
+  "chunk_size": 500,
+  "sample_rate": 24000,
+  "speed": 1,
+  "output_format": "mp3",
+  "crossfade_duration": 0.2
+}
