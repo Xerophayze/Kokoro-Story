@@ -1,29 +1,6 @@
 # Kokoro-Story
-<p align="center">
-  <a href="https://github.com/user-attachments/assets/a6a98e95-3d2c-4d83-a877-fdee05dcea44">
-    <img src="https://github.com/user-attachments/assets/a6a98e95-3d2c-4d83-a877-fdee05dcea44" width="220" />
-  </a>
-  <a href="https://github.com/user-attachments/assets/2a8a7202-a97f-49f8-8521-8bc3f298ea80">
-    <img src="https://github.com/user-attachments/assets/2a8a7202-a97f-49f8-8521-8bc3f298ea80" width="220" />
-  </a>
-  <a href="https://github.com/user-attachments/assets/7cd8ae2a-79d7-4358-8e2d-9e38e8aa45d6">
-    <img src="https://github.com/user-attachments/assets/7cd8ae2a-79d7-4358-8e2d-9e38e8aa45d6" width="220" />
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/user-attachments/assets/51293545-09ad-4bfb-a07f-b3ba6dcdcaed">
-    <img src="https://github.com/user-attachments/assets/51293545-09ad-4bfb-a07f-b3ba6dcdcaed" width="220" />
-  </a>
-  <a href="https://github.com/user-attachments/assets/27a851d3-0283-4a62-a05f-040eeb7c5ce5">
-    <img src="https://github.com/user-attachments/assets/27a851d3-0283-4a62-a05f-040eeb7c5ce5" width="220" />
-  </a>
-</p>
 
 A web-based Text-to-Speech application powered by Kokoro-82M, supporting both local GPU inference and Replicate API for generating multi-voice audiobooks and stories.
-[Multivoice Example 1](https://github.com/user-attachments/files/23542062/kokoro_story_ba5d19be-4b74-4a34-9020-16ba28a78a24.mp3)
-[Multivoice Example 2](https://github.com/user-attachments/files/23542061/kokoro_story_17d9a6ed-ddb8-45b1-9c24-99c55ca4b045.mp3)
-
 
 ## Features
 
@@ -36,6 +13,8 @@ A web-based Text-to-Speech application powered by Kokoro-82M, supporting both lo
 - 📥 **Job Queue**: Submit multiple jobs, track status, cancel, and download results
 - 📊 **Job Queue Tab**: Dedicated UI to monitor all jobs in real time
 - 📚 **Audio Library**: Browsable list of all completed outputs with inline players and delete/clear
+- 📖 **Per-Chapter Generation**: Detects headings like “Chapter 1” and, when enabled, creates individual audio files per chapter
+- 🗂️ **Chapter-Aware Library**: Library entries become navigable chapter collections when you split audio, with in-card chapter selectors and per-chapter downloads
 - �️ **Available Voices & Previews**: Browse all Kokoro voices, generate preview samples, and click to listen
 - 🔁 **Sample Generation**: Generate or regenerate missing previews with a single button
 - 🎛️ **Configurable Settings**: Control mode (local/Replicate), speed, chunk size, output format, crossfade
@@ -84,7 +63,7 @@ All of these voices are browsable in the **Available Voices** tab, where you can
 
 1. **Clone or download the repository**
 ```bash
-git clone https://github.com/Xerophayze/Kokoro-Story.git
+git clone <your-repo-url>
 cd Kokoro-Story
 ```
 

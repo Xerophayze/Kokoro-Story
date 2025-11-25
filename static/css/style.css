@@ -499,8 +499,38 @@ audio {
 
 .library-item-meta {
     display: flex;
-    gap: 10px;
-    align-items: center;
+    gap: 15px;
+    color: var(--text-muted);
+}
+
+.chapter-controls {
+    margin: 15px 0;
+    padding: 15px;
+    background: rgba(99, 102, 241, 0.06);
+    border-radius: 8px;
+    border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.chapter-controls-header {
+    margin-bottom: 10px;
+    color: var(--text-color);
+}
+
+.chapter-pill-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.chapter-pill {
+    font-size: 0.85rem;
+    padding: 6px 12px;
+}
+
+.chapter-pill.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: transparent;
 }
 
 .library-item-size,

@@ -50,6 +50,16 @@
                     </select>
                 </div>
                 
+                <div class="section" style="margin-top: 20px; padding: 20px; background: rgba(99, 102, 241, 0.08); border-radius: 8px; border: 1px dashed rgba(99,102,241,0.4);">
+                    <label style="display: flex; align-items: center; gap: 10px; font-size: 16px;">
+                        <input type="checkbox" id="split-chapters-checkbox">
+                        Generate separate audio files for each chapter
+                    </label>
+                    <p id="chapter-detection-hint" class="help-text" style="margin-top: 10px; margin-bottom: 0;">
+                        Chapters not analyzed yet.
+                    </p>
+                </div>
+                
                 <div class="button-group">
                     <button id="generate-btn" class="btn btn-primary">Generate Audio</button>
                 </div>
@@ -79,6 +89,7 @@
                     </div>
                 </div>
                 <div id="speakers-list"></div>
+                <div id="chapter-detection-info" class="help-text" style="display: none; margin-top: 10px;"></div>
                 <div id="inline-voice-assignments" style="display: none; margin-top: 20px;">
                     <h3>Assign Voices</h3>
                     <div id="inline-voice-assignment-list"></div>

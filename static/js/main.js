@@ -6,6 +6,35 @@ let analyzeDebounceTimer = null;
 let lastAnalyzedText = '';
 const ANALYZE_DEBOUNCE_MS = 800;
 
+function refreshChapterHint() {
+    const chapterHint = document.getElementById('chapter-detection-hint');
+    const chapterCheckbox = document.getElementById('split-chapters-checkbox');
+    if (!chapterHint || !chapterCheckbox) {
+        return;
+    }
+
+    if (!currentStats || !currentStats.chapter_detection) {
+        chapterHint.textContent = chapterCheckbox.checked
+            ? 'Chapter splitting enabled. Awaiting analysis to determine chapters.'
+            : 'Chapters not analyzed yet.';
+        return;
+    }
+
+    const { detected, count } = currentStats.chapter_detection;
+    if (!detected) {
+        chapterHint.textContent = chapterCheckbox.checked
+            ? 'Splitting enabled, but no chapter headings were detected. The whole story will be one file.'
+            : 'No chapters detected. Add headings like "Chapter 1" to enable per-chapter outputs.';
+        return;
+    }
+
+    if (chapterCheckbox.checked) {
+        chapterHint.textContent = `Splitting enabled: ${count} chapter${count === 1 ? '' : 's'} will become individual audio files.`;
+    } else {
+        chapterHint.textContent = `Detected ${count} chapter${count === 1 ? '' : 's'}. Enable the checkbox to create separate audio files.`;
+    }
+}
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     initTabs();
@@ -48,12 +77,18 @@ function initAutoAnalyze() {
 function hideAnalysis() {
     const statsSection = document.getElementById('stats-section');
     const inlineAssignments = document.getElementById('inline-voice-assignments');
+    const chapterInfo = document.getElementById('chapter-detection-info');
     if (statsSection) {
         statsSection.style.display = 'none';
     }
     if (inlineAssignments) {
         inlineAssignments.style.display = 'none';
     }
+    if (chapterInfo) {
+        chapterInfo.style.display = 'none';
+    }
+    currentStats = null;
+    refreshChapterHint();
 }
 
 // Tab switching
@@ -85,6 +120,7 @@ function setupEventListeners() {
     const downloadBtn = document.getElementById('download-btn');
     const newGenerationBtn = document.getElementById('new-generation-btn');
     const cancelBtn = document.getElementById('cancel-btn');
+    const chapterCheckbox = document.getElementById('split-chapters-checkbox');
 
     if (analyzeBtn) {
         analyzeBtn.addEventListener('click', analyzeText);
@@ -100,6 +136,12 @@ function setupEventListeners() {
     }
     if (cancelBtn) {
         cancelBtn.addEventListener('click', cancelGeneration);
+    }
+    if (chapterCheckbox) {
+        chapterCheckbox.addEventListener('change', () => {
+            chapterCheckbox.dataset.userToggled = 'true';
+            refreshChapterHint();
+        });
     }
 }
 
@@ -184,6 +226,26 @@ function displayStatistics(stats) {
     
     // Display speakers
     const speakersList = document.getElementById('speakers-list');
+    const chapterInfo = document.getElementById('chapter-detection-info');
+    const chapterHint = document.getElementById('chapter-detection-hint');
+    const chapterCheckbox = document.getElementById('split-chapters-checkbox');
+    if (chapterInfo && stats.chapter_detection) {
+        const { detected, count, titles } = stats.chapter_detection;
+        if (detected) {
+            chapterInfo.style.display = 'block';
+            const titleList = titles && titles.length ? ` (<em>${titles.slice(0, 5).join(', ')}${titles.length > 5 ? ', …' : ''}</em>)` : '';
+            chapterInfo.innerHTML = `📚 Chapters detected: <strong>${count}</strong>${titleList}`;
+            if (chapterCheckbox && !chapterCheckbox.dataset.userToggled) {
+                chapterCheckbox.disabled = false;
+                chapterCheckbox.classList.remove('disabled');
+            }
+        } else {
+            chapterInfo.style.display = 'block';
+            chapterInfo.innerHTML = '📚 No chapter headings detected.';
+        }
+    }
+    refreshChapterHint();
+
     if (stats.has_speaker_tags) {
         speakersList.innerHTML = '<p><strong>Detected Speakers:</strong></p>';
         stats.speakers.forEach(speaker => {
@@ -308,6 +370,7 @@ async function generateAudio() {
     // Don't disable the button - allow multiple submissions
     const generateBtn = document.getElementById('generate-btn');
     
+    const splitByChapter = document.getElementById('split-chapters-checkbox')?.checked || false;
     try {
         const response = await fetch('/api/generate', {
             method: 'POST',
@@ -316,7 +379,8 @@ async function generateAudio() {
             },
             body: JSON.stringify({
                 text,
-                voice_assignments: voiceAssignments
+                voice_assignments: voiceAssignments,
+                split_by_chapter: splitByChapter
             })
         });
         
