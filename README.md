@@ -46,7 +46,7 @@ A web-based Text-to-Speech application powered by Kokoro-82M, supporting both lo
 - 🎭 **Multi-Voice Support**: Use Kokoro-82M voices for any number of characters in your story
 - 🧪 **Custom Voice Blending**: Mix any combination of Kokoro voices with weighted ratios to create reusable “custom_*” voice codes without touching the command line
 - 🔊 **Speaker Tags & Auto Detection**: Automatically parse `[speaker1]...[/speaker1]` or `[alice]...[/alice]` tags, normalize casing, and keep a live registry of every speaker for quick voice assignment
-- 🤖 **Gemini Pre-Processing**: Split long inputs into chapters/chunks, prepend your custom Gemini prompt, and stream each section through Google Gemini with a live progress indicator
+- 🤖 **Gemini Pre-Processing**: Automatically decides between whole-text or chapter-based Gemini runs. When chapter splitting is enabled, each chapter is sent as its own Gemini request with speaker-memory context; otherwise the entire story plus your pre-prompt goes as one request.
 - 🧠 **Speaker Memory Between Chunks**: Gemini requests carry forward the list of already-discovered speaker tags so later chunks keep the same character names (e.g., "Elora" stays "Elora" instead of becoming "Commander Elora")
 - 🖥️ **Local GPU Processing**: Run Kokoro-82M locally on your NVIDIA GPU for privacy and speed
 - ☁️ **Cloud API Option**: Use Replicate API when you don’t have local GPU resources
@@ -121,6 +121,7 @@ The setup script will automatically:
 - ✅ Install PyTorch with appropriate CUDA support (or CPU-only if no GPU)
 - ✅ Download and install espeak-ng automatically
 - ✅ Install all other required dependencies
+- ✅ Download the Rubber Band CLI and wire it up for high-quality pitch/tempo FX
 - ✅ Verify the installation
 
 **Supported CUDA Versions:**
@@ -145,6 +146,10 @@ If you prefer to install manually or the automatic setup fails:
 1. **Install espeak-ng**
    - Download from [espeak-ng releases](https://github.com/espeak-ng/espeak-ng/releases)
    - Install the `espeak-ng-X64.msi` file for Windows
+
+2. **Install Rubber Band CLI (for pitch/tempo FX quality)**
+   - Download the Windows zip from [breakfastquay.com/rubberband](https://breakfastquay.com/rubberband/)
+   - Extract it and add the folder containing `rubberband.exe` to your `PATH`
 
 2. **Create virtual environment**
 ```bash
@@ -186,6 +191,12 @@ python app.py
    - **Library** tab (all past generations)
    - **Latest Audio** section on the **Generate** tab (most recent completed job)
 8. When "Generate separate audio files for each chapter" is on, you can also enable "Also create a single full-length audiobook" so the Library presents both individual chapters and a combined ZIP/full download.
+9. Voice assignments, tone/pitch settings, and detected speakers stay exactly as-is after job submission. Use the “Reset Assignments” button if you ever want to clear them manually.
+
+### Quick Test Previews
+
+- A shared “Quick Test Text” field lives above the Assigned Voices section so you can type once and preview any speaker with matching FX.
+- Each speaker row includes an inline Quick Test button beside the tone controls; the default voice panel keeps its own per-voice preview textarea so you can audition narrator tweaks independently.
 
 **Note:** Local GPU mode runs entirely on your machine and never uses the Replicate API, ensuring complete privacy and no API costs.
 
@@ -221,13 +232,13 @@ You can use any alphanumeric name (letters, numbers, underscores). The system wi
 Need to tidy a manuscript or add consistent speaker tags before running TTS? Use the **Prep Text with Gemini** button:
 
 1. Enter your Gemini API key and model in **Settings**, then click **Fetch Available Models** if you want to load the latest list directly from Google.
-2. Paste your story in the **Generate** tab and choose whether to prioritize chapter-based splitting or balanced chunks.
-3. Click **Prep Text with Gemini**. The app will:
-   - Build sections (chapters or chunks) locally.
-   - Show a real-time progress bar (e.g., “Processing section 3 of 7”).
-   - Send each section to Gemini along with your configured prompt and the running list of known speaker tags so names stay consistent.
+2. Paste your story in the **Generate** tab and decide whether “Generate separate audio files for each chapter” should be enabled.
+3. Click **Prep Text with Gemini**:
+   - If chapter splitting is enabled, Kokoro-Story reuses the detected chapter list and sends each one to Gemini separately with your pre-prompt and the running speaker list.
+   - If chapter splitting is disabled, the whole manuscript (plus pre-prompt) is sent in a single Gemini request to respect the context window.
+   - A real-time progress bar shows which chapter or full-text step is running.
 4. When Gemini finishes, the cleaned/expanded narrative replaces the input field. Chapter headings stay inside the narrator tags so audio splitting still works.
-5. Re-run **Analyze Text** if needed and assign voices—your previous voice selections are preserved unless the text actually changes.
+5. Re-run **Analyze Text** if needed. Your voice assignments and FX settings remain untouched unless you explicitly reset them.
 
 Because the speaker list is tracked across sections, characters that appear later continue to use the same tag, which keeps the voice assignment UI tidy and prevents duplicate dropdowns.
 
