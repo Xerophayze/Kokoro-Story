@@ -6,6 +6,14 @@ let analyzeDebounceTimer = null;
 let lastAnalyzedText = '';
 const ANALYZE_DEBOUNCE_MS = 800;
 const VOICES_EVENT_NAME = window.VOICES_UPDATED_EVENT || 'voices:updated';
+const DEFAULT_FX_STATE = Object.freeze({
+    pitch: 0,
+    tempo: 1,
+    tone: 'neutral',
+    sampleText: ''
+});
+const voiceFxState = {};
+let currentFxPreviewAudio = null;
 
 window.customVoiceMap = window.customVoiceMap || {};
 window.addEventListener(VOICES_EVENT_NAME, handleVoicesUpdated);
@@ -20,6 +28,246 @@ function handleVoicesUpdated(event) {
     }
     populateDefaultVoiceSelect();
     populateVoiceSelects();
+    initDefaultVoiceFxPanel();
+}
+
+function getFxStateKey(speaker) {
+    if (!speaker) return 'default';
+    return speaker;
+}
+
+function getFxState(speaker) {
+    const key = getFxStateKey(speaker);
+    if (!voiceFxState[key]) {
+        voiceFxState[key] = {
+            pitch: DEFAULT_FX_STATE.pitch,
+            tempo: DEFAULT_FX_STATE.tempo,
+            tone: DEFAULT_FX_STATE.tone,
+            sampleText: DEFAULT_FX_STATE.sampleText
+        };
+    }
+    return voiceFxState[key];
+}
+
+function getFxPayload(speaker) {
+    const state = getFxState(speaker);
+    return {
+        pitch: Number(state.pitch) || 0,
+        tempo: Number(state.tempo) || 1,
+        tone: state.tone || 'neutral'
+    };
+}
+
+function createAssignment(voiceName, langCode, speakerKey) {
+    const assignment = {
+        voice: voiceName,
+        lang_code: langCode
+    };
+    const fxPayload = getFxPayload(speakerKey);
+    if (fxPayload) {
+        assignment.fx = fxPayload;
+    }
+    return assignment;
+}
+
+function getSharedPreviewText() {
+    const shared = document.getElementById('global-voice-preview-text');
+    const value = shared?.value?.trim();
+    if (value) return value;
+    return 'This is a quick preview line.';
+}
+
+function buildDefaultSampleText(speaker) {
+    if (!speaker || speaker === 'default') {
+        return 'This is a quick preview for the default narrator.';
+    }
+    return `This is a quick preview line for ${speaker}.`;
+}
+
+function renderFxPanel(container, speaker, options = {}) {
+    if (!container) return;
+    const state = getFxState(speaker);
+    const wrapClass = container.classList.contains('voice-fx-inline')
+        ? 'fx-inline-layout'
+        : 'fx-panel-layout';
+    const previewSlot = options.previewTargetId
+        ? document.getElementById(options.previewTargetId)
+        : null;
+    const useSharedPreview = options.useSharedPreview === true;
+    const showHeaderTitle = options.showHeader !== false;
+    const title = options.title || 'Voice FX';
+    const headerMarkup = showHeaderTitle
+        ? `<div class="fx-header"><h4>${title}</h4></div>`
+        : '';
+    const previewMarkup = !useSharedPreview
+        ? `
+            <div class="fx-field fx-preview">
+                <textarea data-role="fx-sample-text" rows="2" placeholder="Preview text">${state.sampleText || buildDefaultSampleText(speaker)}</textarea>
+                <button type="button" class="btn btn-sm" data-role="fx-preview-btn">Quick Test</button>
+            </div>
+        `
+        : '';
+    container.innerHTML = `
+        <div class="${wrapClass}">
+            ${headerMarkup}
+            <div class="fx-fields">
+                <div class="fx-field fx-inline fx-slider">
+                    <label>Pitch</label>
+                    <div class="slider-group">
+                        <input type="range" min="-6" max="6" step="0.1" value="${state.pitch}" data-role="fx-pitch">
+                        <span class="slider-value" data-role="fx-pitch-value">${state.pitch.toFixed(1)} st</span>
+                    </div>
+                </div>
+                <div class="fx-field fx-inline fx-slider">
+                    <label>Tempo</label>
+                    <div class="slider-group">
+                        <input type="range" min="0.75" max="1.35" step="0.01" value="${state.tempo}" data-role="fx-tempo">
+                        <span class="slider-value" data-role="fx-tempo-value">${state.tempo.toFixed(2)}x</span>
+                    </div>
+                </div>
+                <div class="fx-field fx-inline fx-tone ${useSharedPreview ? 'fx-tone-actions' : ''}">
+                    <label>Tone</label>
+                    <div class="tone-pill-group" data-role="fx-tone-group">
+                        ${['neutral', 'warm', 'bright'].map(tone => `
+                            <button type="button" class="tone-pill ${state.tone === tone ? 'active' : ''}" data-tone="${tone}">
+                                ${tone.charAt(0).toUpperCase() + tone.slice(1)}
+                            </button>
+                        `).join('')}
+                    </div>
+                    ${useSharedPreview ? '<button type="button" class="btn btn-sm" data-role="fx-preview-btn">Quick Test</button>' : ''}
+                </div>
+            </div>
+        </div>
+    `;
+    if (!useSharedPreview) {
+        if (previewSlot) {
+            previewSlot.innerHTML = previewMarkup;
+        } else if (previewMarkup) {
+            container.insertAdjacentHTML('beforeend', previewMarkup);
+        }
+    }
+    container.classList.remove('fx-disabled');
+
+    const pitchInput = container.querySelector('[data-role="fx-pitch"]');
+    const pitchValue = container.querySelector('[data-role="fx-pitch-value"]');
+    const tempoInput = container.querySelector('[data-role="fx-tempo"]');
+    const tempoValue = container.querySelector('[data-role="fx-tempo-value"]');
+    const toneButtonsEls = container.querySelectorAll('[data-tone]');
+    const previewRoot = useSharedPreview ? container : (previewSlot || container);
+    const previewBtn = previewRoot.querySelector('[data-role="fx-preview-btn"]');
+    const sampleInput = useSharedPreview
+        ? document.getElementById('global-voice-preview-text')
+        : previewRoot.querySelector('[data-role="fx-sample-text"]');
+
+    if (pitchInput && pitchValue) {
+        pitchInput.addEventListener('input', event => {
+            state.pitch = parseFloat(event.target.value) || 0;
+            pitchValue.textContent = `${state.pitch.toFixed(1)} st`;
+        });
+    }
+    if (tempoInput && tempoValue) {
+        tempoInput.addEventListener('input', event => {
+            state.tempo = parseFloat(event.target.value) || 1;
+            tempoValue.textContent = `${state.tempo.toFixed(2)}x`;
+        });
+    }
+    toneButtonsEls.forEach(button => {
+        button.addEventListener('click', () => {
+            const selectedTone = button.dataset.tone || 'neutral';
+            state.tone = selectedTone;
+            toneButtonsEls.forEach(btn => btn.classList.toggle('active', btn === button));
+        });
+    });
+    if (!useSharedPreview && sampleInput) {
+        sampleInput.addEventListener('input', event => {
+            state.sampleText = event.target.value;
+        });
+    }
+    if (previewBtn) {
+        previewBtn.addEventListener('click', () => handleFxPreview(speaker, container));
+    }
+}
+
+function resolveVoiceSelection(speaker) {
+    if (speaker === 'default' || !speaker) {
+        return document.getElementById('default-voice-select')?.value || '';
+    }
+    const selector = document.querySelector(`#inline-voice-assignment-list .voice-select[data-speaker="${speaker}"]`);
+    return selector?.value || '';
+}
+
+async function handleFxPreview(speaker, container) {
+    if (!container) return;
+    const voiceName = resolveVoiceSelection(speaker);
+    const statusEl = container.querySelector('[data-role="fx-status"]');
+    const previewBtn = container.querySelector('[data-role="fx-preview-btn"]');
+    if (!voiceName) {
+        if (statusEl) statusEl.textContent = 'Select a voice first.';
+        return;
+    }
+    const langCode = getLangCodeForVoice(voiceName);
+    const state = getFxState(speaker);
+    const sampleText = speaker === 'default'
+        ? (state.sampleText || '').trim() || buildDefaultSampleText(speaker)
+        : getSharedPreviewText();
+    const payload = {
+        voice: voiceName,
+        lang_code: langCode,
+        text: sampleText,
+        speed: parseFloat(document.getElementById('speed')?.value) || 1.0,
+    };
+    const fxPayload = getFxPayload(speaker);
+    if (fxPayload) {
+        payload.fx = fxPayload;
+    }
+
+    try {
+        if (previewBtn) previewBtn.disabled = true;
+        if (statusEl) statusEl.textContent = 'Rendering preview…';
+
+        const response = await fetch('/api/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!data.success || !data.audio_base64) {
+            throw new Error(data.error || 'Preview failed');
+        }
+        if (currentFxPreviewAudio) {
+            currentFxPreviewAudio.pause();
+            currentFxPreviewAudio = null;
+        }
+        const mime = data.mime_type || 'audio/wav';
+        currentFxPreviewAudio = new Audio(`data:${mime};base64,${data.audio_base64}`);
+        currentFxPreviewAudio.play().then(() => {
+            if (statusEl) statusEl.textContent = 'Playing preview…';
+        }).catch(err => {
+            console.error('Preview playback failed', err);
+            if (statusEl) statusEl.textContent = 'Unable to play preview.';
+        });
+        if (currentFxPreviewAudio) {
+            currentFxPreviewAudio.onended = () => {
+                if (statusEl) statusEl.textContent = '';
+                currentFxPreviewAudio = null;
+            };
+        }
+    } catch (error) {
+        console.error('Preview failed:', error);
+        if (statusEl) statusEl.textContent = error.message || 'Preview failed';
+    } finally {
+        if (previewBtn) previewBtn.disabled = false;
+    }
+}
+
+function initDefaultVoiceFxPanel() {
+    const container = document.getElementById('default-voice-fx-panel');
+    if (!container) return;
+    renderFxPanel(container, 'default', {
+        title: 'Default Voice FX',
+        showHeader: false,
+        previewTargetId: 'default-voice-preview-slot',
+    });
 }
 
 function refreshChapterHint() {
@@ -62,7 +310,7 @@ async function processWithGemini(buttonEl) {
         return;
     }
 
-    const splitByChapter = document.getElementById('split-chapters-checkbox')?.checked ?? true;
+    const splitByChapter = document.getElementById('split-chapters-checkbox')?.checked ?? false;
     updateGeminiProgress({ visible: true, label: 'Preparing Gemini request…', count: '', fill: 5 });
 
     const originalLabel = buttonEl ? buttonEl.textContent : '';
@@ -71,87 +319,132 @@ async function processWithGemini(buttonEl) {
         buttonEl.textContent = 'Processing with Gemini...';
     }
 
-    showNotification('Sending content to Gemini...', 'info');
+    showNotification(
+        splitByChapter
+            ? 'Splitting content by chapter and sending to Gemini...'
+            : 'Sending entire text to Gemini...',
+        'info'
+    );
 
     try {
-        const sectionsResponse = await fetch('/api/gemini/sections', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                text,
-                prefer_chapters: splitByChapter
-            })
-        });
-
-        const sectionsData = await sectionsResponse.json();
-        if (!sectionsData.success) {
-            throw new Error(sectionsData.error || 'Unable to build Gemini sections');
-        }
-
-        const sections = sectionsData.sections || [];
-        if (!sections.length) {
-            throw new Error('No sections were generated for Gemini processing');
-        }
-
-        const outputs = [];
-        const knownSpeakers = new Set();
-        if (currentStats?.speakers?.length) {
-            currentStats.speakers.forEach(name => {
-                if (typeof name === 'string' && name.trim()) {
-                    knownSpeakers.add(name.trim().toLowerCase());
-                }
-            });
-        }
-        for (let i = 0; i < sections.length; i++) {
-            const section = sections[i];
-            const currentIndex = i + 1;
+        if (splitByChapter) {
             updateGeminiProgress({
                 visible: true,
-                label: `Processing section ${currentIndex} of ${sections.length}…`,
-                count: `${currentIndex} / ${sections.length}`,
-                fill: Math.round((currentIndex / sections.length) * 100)
+                label: 'Building chapter list for Gemini…',
+                count: '',
+                fill: 15
             });
 
-            const payload = {
-                content: section.content || ''
-            };
-            if (knownSpeakers.size > 0) {
-                payload.known_speakers = Array.from(knownSpeakers);
-            }
-
-            const sectionResponse = await fetch('/api/gemini/process-section', {
+            const sectionsResponse = await fetch('/api/gemini/sections', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(payload)
+                body: JSON.stringify({
+                    text,
+                    prefer_chapters: true
+                })
             });
 
-            const sectionData = await sectionResponse.json();
-            if (!sectionData.success) {
-                throw new Error(sectionData.error || `Gemini failed on section ${i + 1}`);
+            const sectionsData = await sectionsResponse.json();
+            if (!sectionsData.success) {
+                throw new Error(sectionsData.error || 'Unable to build Gemini chapters');
             }
 
-            if (Array.isArray(sectionData.speakers)) {
-                sectionData.speakers.forEach(speaker => {
-                    if (typeof speaker === 'string' && speaker.trim()) {
-                        knownSpeakers.add(speaker.trim().toLowerCase());
+            const sections = sectionsData.sections || [];
+            if (!sections.length) {
+                throw new Error('No chapters were generated for Gemini processing.');
+            }
+
+            const outputs = [];
+            const knownSpeakers = new Set();
+            if (currentStats?.speakers?.length) {
+                currentStats.speakers.forEach(name => {
+                    if (typeof name === 'string' && name.trim()) {
+                        knownSpeakers.add(name.trim().toLowerCase());
                     }
                 });
             }
-            outputs.push(sectionData.result_text || '');
+
+            for (let i = 0; i < sections.length; i++) {
+                const section = sections[i];
+                const currentIndex = i + 1;
+                updateGeminiProgress({
+                    visible: true,
+                    label: `Processing chapter ${currentIndex} of ${sections.length}…`,
+                    count: `${currentIndex} / ${sections.length}`,
+                    fill: Math.round((currentIndex / sections.length) * 100)
+                });
+
+                const payload = {
+                    content: section.content || ''
+                };
+                if (knownSpeakers.size > 0) {
+                    payload.known_speakers = Array.from(knownSpeakers);
+                }
+
+                const sectionResponse = await fetch('/api/gemini/process-section', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const sectionData = await sectionResponse.json();
+                if (!sectionData.success) {
+                    throw new Error(sectionData.error || `Gemini failed on chapter ${currentIndex}`);
+                }
+
+                if (Array.isArray(sectionData.speakers)) {
+                    sectionData.speakers.forEach(speaker => {
+                        if (typeof speaker === 'string' && speaker.trim()) {
+                            knownSpeakers.add(speaker.trim().toLowerCase());
+                        }
+                    });
+                }
+                outputs.push(sectionData.result_text || '');
+            }
+
+            updateGeminiProgress({
+                visible: true,
+                label: 'Combining Gemini output…',
+                count: `${sections.length} / ${sections.length}`,
+                fill: 100
+            });
+
+            inputEl.value = outputs.join('\n\n').trim();
+        } else {
+            updateGeminiProgress({ visible: true, label: 'Contacting Gemini…', count: '', fill: 20 });
+
+            const response = await fetch('/api/gemini/process-full', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ text })
+            });
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || 'Gemini processing failed');
+            }
+
+            const processedText = (data.result_text || '').trim();
+            if (!processedText) {
+                throw new Error('Gemini returned an empty response.');
+            }
+
+            updateGeminiProgress({
+                visible: true,
+                label: 'Gemini response received…',
+                count: '',
+                fill: 100
+            });
+
+            inputEl.value = processedText;
         }
 
-        updateGeminiProgress({
-            visible: true,
-            label: 'Combining Gemini output…',
-            count: `${sections.length} / ${sections.length}`,
-            fill: 100
-        });
-
-        inputEl.value = outputs.join('\n\n').trim();
         lastAnalyzedText = '';
         showNotification('Gemini processing complete! Text updated.', 'success');
         await analyzeText({ auto: true });
@@ -193,6 +486,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadHealthStatus();
     setupEventListeners();
     populateDefaultVoiceSelect();
+    initDefaultVoiceFxPanel();
     initAutoAnalyze();
     const chapterCheckbox = document.getElementById('split-chapters-checkbox');
     syncFullStoryOption(chapterCheckbox, true);
@@ -274,6 +568,7 @@ function setupEventListeners() {
     const geminiBtn = document.getElementById('gemini-process-btn');
     const downloadBtn = document.getElementById('download-btn');
     const newGenerationBtn = document.getElementById('new-generation-btn');
+    const resetAssignmentsBtn = document.getElementById('reset-assignments-btn');
     const cancelBtn = document.getElementById('cancel-btn');
     const chapterCheckbox = document.getElementById('split-chapters-checkbox');
     const fullStoryCheckbox = document.getElementById('full-story-checkbox');
@@ -292,6 +587,9 @@ function setupEventListeners() {
     }
     if (newGenerationBtn) {
         newGenerationBtn.addEventListener('click', resetGeneration);
+    }
+    if (resetAssignmentsBtn) {
+        resetAssignmentsBtn.addEventListener('click', resetVoiceAssignments);
     }
     if (cancelBtn) {
         cancelBtn.addEventListener('click', cancelGeneration);
@@ -459,12 +757,32 @@ function displayInlineVoiceAssignments(speakers) {
         const row = document.createElement('div');
         row.className = 'voice-assignment-row';
         row.innerHTML = `
-            <label>${speaker}:</label>
-            <select class="voice-select" data-speaker="${speaker}">
-                <option value="">Select Voice...</option>
-            </select>
+            <div class="voice-fx-inline voice-inline-card" data-speaker="${speaker}"></div>
         `;
         container.appendChild(row);
+        const fxContainer = row.querySelector('.voice-fx-inline');
+        if (fxContainer) {
+            renderFxPanel(fxContainer, speaker, {
+                title: `${speaker} FX`,
+                showHeader: false,
+                useSharedPreview: true
+            });
+
+            const fields = fxContainer.querySelector('.fx-fields');
+            if (fields) {
+                const selectBlock = document.createElement('div');
+                selectBlock.className = 'fx-field voice-select-inline';
+                const label = document.createElement('label');
+                label.textContent = speaker;
+                const selectEl = document.createElement('select');
+                selectEl.className = 'voice-select';
+                selectEl.dataset.speaker = speaker;
+                selectEl.innerHTML = '<option value="">Select Voice...</option>';
+                selectBlock.appendChild(label);
+                selectBlock.appendChild(selectEl);
+                fields.insertBefore(selectBlock, fields.firstChild);
+            }
+        }
     });
     
     // Populate voice options (wait for voices to load if needed)
@@ -528,16 +846,10 @@ async function generateAudio() {
         const langCode = getLangCodeForVoice(defaultVoice);
         if (currentStats.speakers && currentStats.speakers.length > 0) {
             currentStats.speakers.forEach(speaker => {
-                voiceAssignments[speaker] = {
-                    voice: defaultVoice,
-                    lang_code: langCode
-                };
+                voiceAssignments[speaker] = createAssignment(defaultVoice, langCode, speaker);
             });
         } else {
-            voiceAssignments['default'] = {
-                voice: defaultVoice,
-                lang_code: langCode
-            };
+            voiceAssignments['default'] = createAssignment(defaultVoice, langCode, 'default');
         }
     }
     
@@ -570,10 +882,6 @@ async function generateAudio() {
             
             // Update queue indicator
             updateQueueIndicator();
-            
-            // Clear the form for next submission
-            currentStats = null;
-            document.getElementById('stats-section').style.display = 'none';
             
         } else {
             alert('Error: ' + data.error);
@@ -690,6 +998,51 @@ function simulateProgressWithEstimate(estimatedSeconds) {
     // Not used in queue mode
 }
 
+function resetVoiceAssignments() {
+    const inputText = document.getElementById('input-text')?.value || '';
+    const shouldProceed = inputText.trim()
+        ? confirm('Reset all speaker assignments and FX settings? You can re-run Analyze Text afterwards.')
+        : true;
+    if (!shouldProceed) {
+        return;
+    }
+
+    Object.keys(voiceFxState).forEach(key => {
+        if (key === 'default') {
+            voiceFxState[key] = {
+                pitch: DEFAULT_FX_STATE.pitch,
+                tempo: DEFAULT_FX_STATE.tempo,
+                tone: DEFAULT_FX_STATE.tone,
+                sampleText: DEFAULT_FX_STATE.sampleText
+            };
+        } else {
+            delete voiceFxState[key];
+        }
+    });
+
+    const inlineAssignments = document.getElementById('inline-voice-assignments');
+    if (inlineAssignments) {
+        inlineAssignments.style.display = 'none';
+    }
+    const assignmentList = document.getElementById('inline-voice-assignment-list');
+    if (assignmentList) {
+        assignmentList.innerHTML = '';
+    }
+    const speakersList = document.getElementById('speakers-list');
+    if (speakersList) {
+        speakersList.innerHTML = '<p><em>No speaker tags detected. Run Analyze Text to rebuild assignments.</em></p>';
+    }
+    const statsSection = document.getElementById('stats-section');
+    if (statsSection) {
+        statsSection.style.display = 'none';
+    }
+
+    currentStats = null;
+    lastAnalyzedText = '';
+    initDefaultVoiceFxPanel();
+    showNotification('Assignments reset. Run Analyze Text again when you\'re ready.', 'info');
+}
+
 // Populate default voice selector
 function populateDefaultVoiceSelect() {
     const select = document.getElementById('default-voice-select');
@@ -780,10 +1133,7 @@ function getVoiceAssignments() {
             const langCode = getLangCodeForVoice(voiceName);
             console.log(`Voice ${voiceName} found with lang_code: ${langCode}`);
             
-            assignments[speaker] = {
-                voice: voiceName,
-                lang_code: langCode
-            };
+            assignments[speaker] = createAssignment(voiceName, langCode, speaker);
         }
     });
     

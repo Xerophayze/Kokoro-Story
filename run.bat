@@ -15,6 +15,16 @@ if not exist "venv\Scripts\activate.bat" (
 REM Activate virtual environment
 call venv\Scripts\activate.bat
 
+REM Ensure Rubber Band CLI is on PATH if bundled
+set "RB_EXE=%~dp0tools\rubberband\rubberband.exe"
+if exist "%RB_EXE%" (
+    set "PATH=%~dp0tools\rubberband;%PATH%"
+    echo Rubber Band CLI ready: %RB_EXE%
+) else (
+    echo WARNING: Rubber Band CLI not found (expected %RB_EXE%)
+    echo          Pitch/tempo FX will fall back to lower-quality processing.
+)
+
 REM Check CUDA availability
 python -c "import torch; print('CUDA Available:', torch.cuda.is_available())" 2>nul
 if errorlevel 1 (

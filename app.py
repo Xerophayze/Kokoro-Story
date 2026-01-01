@@ -3,27 +3,25 @@ Kokoro-Story - Web-based TTS application
 """
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
+import base64
+import io
 import json
 import logging
 import os
-import re
-import uuid
-from pathlib import Path
-from datetime import datetime
-import threading
 import queue
-import time
+import re
+import soundfile as sf
 import stat
-import io
+import tempfile
+import threading
+import time
+import uuid
 import zipfile
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional
 
-from src.text_processor import TextProcessor
-from src.voice_manager import VoiceManager
-from src.voice_sample_generator import generate_voice_samples
-from src.tts_engine import TTSEngine, KOKORO_AVAILABLE
-from src.replicate_api import ReplicateAPI
-from src.gemini_processor import GeminiProcessor, GeminiProcessorError
+from src.audio_effects import VoiceFXSettings
 from src.audio_merger import AudioMerger
 from src.custom_voice_store import (
     CUSTOM_CODE_PREFIX,
@@ -34,6 +32,12 @@ from src.custom_voice_store import (
     replace_custom_voice,
     save_custom_voice,
 )
+from src.gemini_processor import GeminiProcessor, GeminiProcessorError
+from src.replicate_api import ReplicateAPI
+from src.text_processor import TextProcessor
+from src.tts_engine import TTSEngine, KOKORO_AVAILABLE, DEFAULT_SAMPLE_RATE
+from src.voice_manager import VoiceManager
+from src.voice_sample_generator import generate_voice_samples
 
 # Setup logging
 logging.basicConfig(
@@ -747,6 +751,79 @@ def generate_voice_samples_api():
     })
 
 
+@app.route('/api/preview', methods=['POST'])
+def preview_audio():
+    """Generate a short preview clip with optional FX settings."""
+    data = request.json or {}
+    voice = (data.get('voice') or '').strip()
+    lang_code = (data.get('lang_code') or 'a').strip()
+    text = (data.get('text') or '').strip()
+    speed = float(data.get('speed') or 1.0)
+    fx_settings = VoiceFXSettings.from_payload(data.get('fx'))
+
+    if not voice:
+        return jsonify({"success": False, "error": "Voice is required for preview."}), 400
+    if not text:
+        text = "This is a quick Kokoro preview."
+
+    config = load_config()
+    mode = config.get('mode', 'local')
+    sample_rate = int(config.get('sample_rate', DEFAULT_SAMPLE_RATE))
+    audio_bytes = None
+
+    try:
+        if mode == 'local':
+            if not KOKORO_AVAILABLE:
+                raise RuntimeError("Local Kokoro is unavailable. Switch to Replicate mode for previews.")
+            engine = get_tts_engine()
+            audio = engine.generate_audio(
+                text=text,
+                voice=voice,
+                lang_code=lang_code,
+                speed=speed,
+                sample_rate=sample_rate,
+                fx_settings=fx_settings,
+            )
+            if audio.size == 0:
+                raise RuntimeError("No audio produced for the requested preview.")
+            buffer = io.BytesIO()
+            sf.write(buffer, audio, sample_rate, format='wav')
+            audio_bytes = buffer.getvalue()
+        else:
+            api_key = (config.get('replicate_api_key') or '').strip()
+            if not api_key:
+                raise RuntimeError("Replicate API key is required for preview in replicate mode.")
+            api = ReplicateAPI(api_key)
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                api.generate_audio(
+                    text=text,
+                    voice=voice,
+                    speed=speed,
+                    output_path=tmp_path,
+                    fx_settings=fx_settings,
+                )
+                with open(tmp_path, 'rb') as fh:
+                    audio_bytes = fh.read()
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+    except Exception as exc:
+        logger.error("Preview generation failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+    if not audio_bytes:
+        return jsonify({"success": False, "error": "Preview failed to generate audio."}), 500
+
+    encoded = base64.b64encode(audio_bytes).decode('ascii')
+    return jsonify({
+        "success": True,
+        "audio_base64": encoded,
+        "mime_type": "audio/wav",
+    })
+
+
 @app.route('/api/custom-voices', methods=['GET', 'POST'])
 def custom_voices_collection():
     """List or create custom voice blends."""
@@ -995,6 +1072,57 @@ def process_text_with_gemini():
         }), 400
     except Exception as e:  # pragma: no cover - general failure
         logger.error(f"Error during Gemini processing: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": "Failed to process text with Gemini"
+        }), 500
+
+
+@app.route('/api/gemini/process-full', methods=['POST'])
+def process_full_text_with_gemini():
+    """Send the entire text to Gemini using the configured pre-prompt without chunking."""
+    try:
+        data = request.json or {}
+        text = (data.get('text') or '').strip()
+
+        if not text:
+            return jsonify({
+                "success": False,
+                "error": "No text provided"
+            }), 400
+
+        config = load_config()
+        api_key = (config.get('gemini_api_key') or '').strip()
+        if not api_key:
+            return jsonify({
+                "success": False,
+                "error": "Gemini API key not configured"
+            }), 400
+
+        model_name = config.get('gemini_model') or DEFAULT_GEMINI_MODEL
+        prompt_prefix = (config.get('gemini_prompt') or '').strip()
+
+        prompt_parts = []
+        if prompt_prefix:
+            prompt_parts.append(prompt_prefix)
+        prompt_parts.append(text)
+        combined_prompt = "\n\n".join(part.strip() for part in prompt_parts if part).strip()
+
+        processor = GeminiProcessor(api_key=api_key, model_name=model_name)
+        response_text = processor.generate_text(combined_prompt)
+
+        return jsonify({
+            "success": True,
+            "result_text": response_text.strip()
+        })
+
+    except GeminiProcessorError as exc:
+        return jsonify({
+            "success": False,
+            "error": str(exc)
+        }), 400
+    except Exception as e:  # pragma: no cover - general failure
+        logger.error(f"Error during full-text Gemini processing: {e}", exc_info=True)
         return jsonify({
             "success": False,
             "error": "Failed to process text with Gemini"

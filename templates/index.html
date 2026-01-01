@@ -41,14 +41,25 @@
                     rows="15"
                 ></textarea>
                 
-                <div class="section" style="margin-top: 15px; padding: 20px; background: #2c3e50; border-radius: 8px; border: 2px solid #3498db;">
-                    <h3 style="margin-top: 0; color: #fff; font-size: 18px;">🎤 Default Voice</h3>
-                    <p style="margin-bottom: 15px; color: #ecf0f1; font-size: 14px;">
-                        Select a default voice for plain text or unassigned speakers.
-                    </p>
-                    <select id="default-voice-select" class="voice-select" style="width: 100%; max-width: 400px; padding: 10px; font-size: 16px;">
-                        <option value="">Select Default Voice...</option>
-                    </select>
+                <div class="section default-voice-card">
+                    <div class="default-voice-header">
+                        <div>
+                            <h3>🎤 Default Voice</h3>
+                            <p>Select a default voice for plain text or unassigned speakers.</p>
+                        </div>
+                    </div>
+                    <div class="default-voice-controls">
+                        <div class="default-voice-select">
+                            <label for="default-voice-select">Default Voice</label>
+                            <select id="default-voice-select" class="voice-select">
+                                <option value="">Select Default Voice...</option>
+                            </select>
+                        </div>
+                        <div id="default-voice-fx-panel" class="voice-fx-panel voice-fx-inline" data-speaker="default"></div>
+                    </div>
+                    <div class="default-voice-preview">
+                        <div id="default-voice-preview-slot" class="fx-preview-row"></div>
+                    </div>
                 </div>
                 
                 <div class="section" style="margin-top: 20px; padding: 20px; background: rgba(99, 102, 241, 0.08); border-radius: 8px; border: 1px dashed rgba(99,102,241,0.4);">
@@ -115,6 +126,11 @@
                 <div id="chapter-detection-info" class="help-text" style="display: none; margin-top: 10px;"></div>
                 <div id="inline-voice-assignments" style="display: none; margin-top: 20px;">
                     <h3>Assign Voices</h3>
+                    <div class="shared-preview-controls">
+                        <label for="global-voice-preview-text">Quick Test Text</label>
+                        <textarea id="global-voice-preview-text" rows="2" placeholder="Type preview text once and use Quick Test on any voice."></textarea>
+                        <p class="help-text">This text is used for every Quick Test button below.</p>
+                    </div>
                     <div id="inline-voice-assignment-list"></div>
                 </div>
             </div>
@@ -268,7 +284,6 @@
                     <label for="chunk-size">Chunk Size (words)</label>
                     <input type="number" id="chunk-size" value="500" min="100" max="1000" step="50">
                     <small>Smaller chunks = more API calls but better memory usage</small>
-                </div>
 
                 <div class="form-group">
                     <label for="speed">Speech Speed</label>

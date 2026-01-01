@@ -5,7 +5,7 @@ echo ========================================
 echo.
 
 REM Check Python installation
-echo [1/6] Checking Python installation...
+echo [1/7] Checking Python installation...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Python is not installed or not in PATH
@@ -19,7 +19,7 @@ echo Found Python %PYTHON_VERSION%
 
 REM Create virtual environment
 echo.
-echo [2/6] Creating virtual environment...
+echo [2/7] Creating virtual environment...
 if exist venv (
     echo Virtual environment already exists, skipping...
 ) else (
@@ -33,17 +33,17 @@ if exist venv (
 
 REM Activate virtual environment
 echo.
-echo [3/6] Activating virtual environment...
+echo [3/7] Activating virtual environment...
 call venv\Scripts\activate.bat
 
 REM Upgrade pip
 echo.
-echo [4/6] Upgrading pip...
+echo [4/7] Upgrading pip...
 python -m pip install --upgrade pip --quiet
 
 REM Install PyTorch (let pip/PyTorch auto-detect CUDA)
 echo.
-echo [5/6] Installing PyTorch...
+echo [5/7] Installing PyTorch...
 echo This may take several minutes...
 echo.
 
@@ -67,7 +67,7 @@ if errorlevel 1 (
 
 REM Install other dependencies
 echo.
-echo [6/6] Installing other Python dependencies...
+echo [6/7] Installing other Python dependencies...
 findstr /v /i "torch" requirements.txt > temp_requirements.txt
 pip install -r temp_requirements.txt
 if errorlevel 1 (
@@ -76,6 +76,8 @@ if errorlevel 1 (
     exit /b 1
 )
 del temp_requirements.txt
+
+call :InstallRubberBand
 
 REM Check for espeak-ng
 echo.
@@ -118,3 +120,68 @@ echo 2. Run: run.bat
 echo 3. Open browser to: http://localhost:5000
 echo.
 pause
+goto :EOF
+
+:InstallRubberBand
+echo.
+echo [7/7] Installing Rubber Band CLI...
+set "RB_DIR=%~dp0tools\rubberband"
+set "RB_URL=https://breakfastquay.com/files/releases/rubberband-4.0.0-gpl-executable-windows.zip"
+set "RB_ZIP=%TEMP%\rubberband_cli.zip"
+set "RB_EXTRACT=%TEMP%\rubberband_cli_extract"
+
+if exist "%RB_DIR%\rubberband.exe" (
+    echo Rubber Band CLI already present.
+    goto :EOF
+)
+
+if not exist "%~dp0tools" (
+    mkdir "%~dp0tools"
+) >nul 2>&1
+
+if exist "%RB_ZIP%" del "%RB_ZIP%" >nul 2>&1
+if exist "%RB_EXTRACT%" rmdir /s /q "%RB_EXTRACT%" >nul 2>&1
+
+echo Downloading Rubber Band CLI from: %RB_URL%
+powershell -NoLogo -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13; Invoke-WebRequest -Uri '%RB_URL%' -OutFile '%RB_ZIP%' -UseBasicParsing -ErrorAction Stop; } catch { Write-Error $_.Exception.Message; exit 1 }" >nul 2>&1
+if errorlevel 1 (
+    echo WARNING: Failed to download Rubber Band CLI. FX will fall back to basic processing.
+    goto :EOF
+)
+
+powershell -Command "Expand-Archive -Path '%RB_ZIP%' -DestinationPath '%RB_EXTRACT%' -Force" >nul 2>&1
+if errorlevel 1 (
+    echo WARNING: Failed to extract Rubber Band CLI archive.
+    goto :EOF
+)
+
+set "RB_SOURCE="
+for /f "delims=" %%F in ('dir /b /s "%RB_EXTRACT%\rubberband.exe" 2^>nul') do (
+    set "RB_SOURCE=%%F"
+    goto :FoundRB
+)
+:FoundRB
+if not defined RB_SOURCE (
+    echo WARNING: rubberband.exe not found in downloaded archive.
+    goto :EOF
+)
+
+for %%F in ("%RB_SOURCE%") do set "RB_SOURCE_DIR=%%~dpF"
+if not defined RB_SOURCE_DIR (
+    echo WARNING: Unable to determine Rubber Band source directory.
+    goto :EOF
+)
+
+if exist "%RB_DIR%" rmdir /s /q "%RB_DIR%" >nul 2>&1
+mkdir "%RB_DIR%" >nul 2>&1
+xcopy /E /I /Y "%RB_SOURCE_DIR%*.*" "%RB_DIR%\" >nul
+if errorlevel 1 (
+    echo WARNING: Failed to copy Rubber Band CLI files to tools directory.
+    goto :EOF
+)
+
+echo Rubber Band CLI installed to %RB_DIR%.
+
+if exist "%RB_ZIP%" del "%RB_ZIP%" >nul 2>&1
+if exist "%RB_EXTRACT%" rmdir /s /q "%RB_EXTRACT%" >nul 2>&1
+goto :EOF

@@ -1,12 +1,13 @@
 """
 TTS Engine - Local GPU inference using Kokoro
 """
-import torch
-import soundfile as sf
-import numpy as np
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
-import logging
+
+import numpy as np
+import soundfile as sf
+import torch
 
 try:
     from kokoro import KPipeline
@@ -15,7 +16,10 @@ except ImportError:
     KOKORO_AVAILABLE = False
     logging.warning("Kokoro not installed. Local TTS will not be available.")
 
+from .audio_effects import AudioPostProcessor, VoiceFXSettings
 from .custom_voice_store import CUSTOM_CODE_PREFIX, get_custom_voice_by_code
+
+DEFAULT_SAMPLE_RATE = 24000
 
 
 class TTSEngine:
@@ -42,6 +46,7 @@ class TTSEngine:
         # Initialize pipeline and custom voice caches
         self.pipelines: Dict[str, KPipeline] = {}
         self.custom_voice_cache: Dict[str, torch.FloatTensor] = {}
+        self.post_processor = AudioPostProcessor()
         
     def _get_pipeline(self, lang_code: str) -> KPipeline:
         """
@@ -65,7 +70,10 @@ class TTSEngine:
         voice: str,
         lang_code: str = "a",
         speed: float = 1.0,
-        output_path: Optional[str] = None
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        output_path: Optional[str] = None,
+        fx_settings: Optional[VoiceFXSettings] = None,
+        max_samples: Optional[int] = None,
     ) -> np.ndarray:
         """
         Generate audio from text
@@ -95,9 +103,13 @@ class TTSEngine:
         
         # Collect all audio chunks
         audio_chunks = []
+        total_samples = 0
         for i, (gs, ps, audio) in enumerate(generator):
             logging.debug(f"Chunk {i}: {len(audio)} samples")
             audio_chunks.append(audio)
+            total_samples += len(audio)
+            if max_samples and max_samples > 0 and total_samples >= max_samples:
+                break
             
         # Concatenate chunks
         if len(audio_chunks) == 0:
@@ -106,11 +118,17 @@ class TTSEngine:
             
         full_audio = np.concatenate(audio_chunks)
         
+        if max_samples and max_samples > 0 and full_audio.shape[0] > max_samples:
+            full_audio = full_audio[:max_samples]
+
         # Save if output path provided
+        if fx_settings:
+            full_audio = self.post_processor.apply(full_audio, sample_rate, fx_settings)
+        
         if output_path:
-            sf.write(output_path, full_audio, 24000)
+            sf.write(output_path, full_audio, sample_rate)
             logging.info(f"Audio saved to {output_path}")
-            
+        
         return full_audio
         
     def generate_batch(
@@ -119,7 +137,8 @@ class TTSEngine:
         voice_config: Dict[str, Dict],
         output_dir: str,
         speed: float = 1.0,
-        progress_cb=None
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        progress_cb=None,
     ) -> List[str]:
         """
         Generate audio for multiple segments
@@ -144,13 +163,20 @@ class TTSEngine:
             chunks = segment["chunks"]
             
             # Get voice config for this speaker
-            voice_info = voice_config.get(speaker, {
+            voice_info = voice_config.get(speaker)
+            if not voice_info:
+                voice_info = voice_config.get("default", {
+                    "voice": "af_heart",
+                    "lang_code": "a"
+                })
+            voice_info = voice_info or {
                 "voice": "af_heart",
                 "lang_code": "a"
-            })
+            }
             
             voice = voice_info["voice"]
             lang_code = voice_info["lang_code"]
+            fx_settings = VoiceFXSettings.from_payload(voice_info.get("fx"))
             
             logging.info(f"Processing segment {seg_idx + 1}/{len(segments)}: "
                         f"speaker={speaker}, chunks={len(chunks)}")
@@ -165,7 +191,9 @@ class TTSEngine:
                         voice=voice,
                         lang_code=lang_code,
                         speed=speed,
-                        output_path=str(output_path)
+                        sample_rate=sample_rate,
+                        output_path=str(output_path),
+                        fx_settings=fx_settings,
                     )
                     
                     output_files.append(str(output_path))

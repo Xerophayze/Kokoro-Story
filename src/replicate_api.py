@@ -1,12 +1,16 @@
 """
 Replicate API - Cloud-based TTS using Replicate
 """
+import logging
+import time
+from pathlib import Path
+from typing import Dict, List, Optional
+
 import replicate
 import requests
-import logging
-from pathlib import Path
-from typing import List, Dict, Optional
-import time
+import soundfile as sf
+
+from .audio_effects import AudioPostProcessor, VoiceFXSettings
 
 
 class ReplicateAPI:
@@ -26,6 +30,7 @@ class ReplicateAPI:
         self.client = replicate.Client(api_token=api_key)
         # Use jaaari's model with specific version hash
         self.model = "jaaari/kokoro-82m:f559560eb822dc509045f3921a1921234918b91739db4bf3daab2169b71c7a13"
+        self.post_processor = AudioPostProcessor()
         
         logging.info("Replicate API client initialized")
         
@@ -34,7 +39,8 @@ class ReplicateAPI:
         text: str,
         voice: str,
         speed: float = 1.0,
-        output_path: Optional[str] = None
+        output_path: Optional[str] = None,
+        fx_settings: Optional[VoiceFXSettings] = None,
     ) -> str:
         """
         Generate audio using Replicate API
@@ -67,6 +73,8 @@ class ReplicateAPI:
             # Download if output path specified
             if output_path:
                 self._download_audio(audio_url, output_path)
+                if fx_settings:
+                    self._apply_fx_to_file(output_path, fx_settings)
                 return output_path
             else:
                 return audio_url
@@ -93,6 +101,11 @@ class ReplicateAPI:
                 f.write(chunk)
                 
         logging.info(f"Audio downloaded to {output_path}")
+
+    def _apply_fx_to_file(self, file_path: str, fx_settings: VoiceFXSettings):
+        audio, sample_rate = sf.read(file_path, dtype='float32')
+        processed = self.post_processor.apply(audio, sample_rate, fx_settings)
+        sf.write(file_path, processed, sample_rate)
         
     def generate_batch(
         self,
@@ -128,12 +141,19 @@ class ReplicateAPI:
             chunks = segment["chunks"]
             
             # Get voice for this speaker
-            voice_info = voice_config.get(speaker, {
+            voice_info = voice_config.get(speaker)
+            if not voice_info:
+                voice_info = voice_config.get("default", {
+                    "voice": "af_heart",
+                    "lang_code": "a"
+                })
+            voice_info = voice_info or {
                 "voice": "af_heart",
                 "lang_code": "a"
-            })
+            }
             
             voice = voice_info["voice"]
+            fx_settings = VoiceFXSettings.from_payload(voice_info.get("fx"))
             
             logging.info(f"Processing segment {seg_idx + 1}/{len(segments)}: "
                         f"speaker={speaker}, chunks={len(chunks)}")
@@ -147,7 +167,8 @@ class ReplicateAPI:
                         text=chunk_text,
                         voice=voice,
                         speed=speed,
-                        output_path=str(output_path)
+                        output_path=str(output_path),
+                        fx_settings=fx_settings,
                     )
                     
                     output_files.append(str(output_path))
