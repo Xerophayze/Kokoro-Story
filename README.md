@@ -52,9 +52,10 @@ A web-based Text-to-Speech application powered by Kokoro-82M, supporting both lo
 - ☁️ **Cloud API Option**: Use Replicate API when you don’t have local GPU resources
 - 📝 **Smart Text Chunking**: Automatically splits long texts into manageable chunks
 - 🎵 **Seamless Audio Merging**: Merges chunks into a single file with configurable crossfade
+- 🔇 **Intro & Inter-Segment Silence Controls**: Dial in precise empty space before the first line and between chunks directly from the UI
 - 📥 **Job Queue**: Submit multiple jobs, track status, cancel, and download results
 - 📊 **Job Queue Tab**: Dedicated UI to monitor all jobs in real time
-- 📚 **Audio Library**: Browsable list of all completed outputs with inline players and delete/clear
+- 📚 **Audio Library**: Browsable list of all completed outputs with inline players and delete/clear, backed by smart caching to keep the tab snappy even with large libraries
 - 🅰️ **Available Voices & Previews**: Browse all Kokoro voices, generate preview samples, and click to listen
 - � **Chapter Collections + Full Audiobook**: Toggle per-chapter outputs and optionally create a single combined audiobook alongside the chapter files
 - �🔁 **Sample Generation**: Generate or regenerate missing previews with a single button

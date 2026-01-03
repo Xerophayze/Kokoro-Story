@@ -11,16 +11,25 @@ import numpy as np
 
 
 class AudioMerger:
-    """Merges audio files with crossfade"""
+    """Merges audio files with crossfade and optional silence controls"""
     
-    def __init__(self, crossfade_ms: int = 100):
+    def __init__(
+        self,
+        crossfade_ms: int = 100,
+        intro_silence_ms: int = 0,
+        inter_chunk_silence_ms: int = 0,
+    ):
         """
         Initialize audio merger
         
         Args:
             crossfade_ms: Crossfade duration in milliseconds
+            intro_silence_ms: Silence to prepend before the first chunk
+            inter_chunk_silence_ms: Silence inserted between sequential chunks
         """
         self.crossfade_ms = crossfade_ms
+        self.intro_silence_ms = max(0, intro_silence_ms)
+        self.inter_chunk_silence_ms = max(0, inter_chunk_silence_ms)
         
     def merge_wav_files(
         self,
@@ -48,8 +57,11 @@ class AudioMerger:
         
         # Load first file
         combined = AudioSegment.from_wav(input_files[0])
+        if self.intro_silence_ms > 0:
+            combined = AudioSegment.silent(duration=self.intro_silence_ms) + combined
         
         # Add remaining files with crossfade
+        total_files = len(input_files)
         for i, file_path in enumerate(input_files[1:], 1):
             logging.debug(f"Adding file {i}/{len(input_files) - 1}")
             next_audio = AudioSegment.from_wav(file_path)
@@ -58,6 +70,9 @@ class AudioMerger:
                 combined = combined.append(next_audio, crossfade=self.crossfade_ms)
             else:
                 combined = combined + next_audio
+            
+            if self.inter_chunk_silence_ms > 0 and i < total_files - 1:
+                combined += AudioSegment.silent(duration=self.inter_chunk_silence_ms)
                 
         # Export
         output_path = Path(output_path)

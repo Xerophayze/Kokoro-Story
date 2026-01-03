@@ -17,8 +17,10 @@ import threading
 import time
 import uuid
 import zipfile
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Dict, Optional
 
 from src.audio_effects import VoiceFXSettings
@@ -56,6 +58,21 @@ OUTPUT_DIR = Path("static/audio")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 JOB_METADATA_FILENAME = "metadata.json"
 DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
+LIBRARY_CACHE_TTL = 5  # seconds
+DEFAULT_CONFIG = {
+    "mode": "local",
+    "replicate_api_key": "",
+    "chunk_size": 500,
+    "sample_rate": 24000,
+    "speed": 1.0,
+    "output_format": "mp3",
+    "crossfade_duration": 0.1,
+    "intro_silence_ms": 0,
+    "inter_chunk_silence_ms": 0,
+    "gemini_api_key": "",
+    "gemini_model": DEFAULT_GEMINI_MODEL,
+    "gemini_prompt": ""
+}
 # Allow headings like [narrator]\nChapter 1 or Chapter 1 without tags.
 CHAPTER_HEADING_PATTERN = re.compile(
     r'^\s*(?:\[[^\]]+\]\s*)*(chapter(?:\s+[^\n\r]*)?)',
@@ -71,6 +88,30 @@ queue_lock = threading.Lock()  # Lock for thread-safe operations
 worker_thread = None  # Background worker thread
 tts_engine_instance = None  # Cached TTS engine
 tts_engine_lock = threading.Lock()
+library_cache = {
+    "items": None,
+    "timestamp": 0.0,
+}
+
+
+@contextmanager
+def log_request_timing(label: str, warn_ms: float = 750.0):
+    """Log slow endpoint or processing sections."""
+    start = perf_counter()
+    try:
+        yield
+    finally:
+        duration_ms = (perf_counter() - start) * 1000.0
+        if duration_ms >= warn_ms:
+            logger.warning(f"{label} took {duration_ms:.1f} ms")
+        else:
+            logger.debug(f"{label} took {duration_ms:.1f} ms")
+
+
+def invalidate_library_cache():
+    """Clear cached library listing so next request reloads from disk."""
+    library_cache["items"] = None
+    library_cache["timestamp"] = 0.0
 
 
 def get_tts_engine():
@@ -321,6 +362,7 @@ def save_job_metadata(job_dir: Path, metadata: dict):
     metadata_path = job_dir / JOB_METADATA_FILENAME
     with open(metadata_path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
+    invalidate_library_cache()
 
 
 def load_job_metadata(job_dir: Path):
@@ -466,8 +508,11 @@ def process_audio_job(job_data):
         
         mode = config['mode']
         output_format = config['output_format']
+        crossfade_seconds = float(config.get('crossfade_duration', 0) or 0)
         merger = AudioMerger(
-            crossfade_ms=int(config['crossfade_duration'] * 1000)
+            crossfade_ms=int(max(0.0, crossfade_seconds) * 1000),
+            intro_silence_ms=int(max(0, config.get('intro_silence_ms', 0) or 0)),
+            inter_chunk_silence_ms=int(max(0, config.get('inter_chunk_silence_ms', 0) or 0))
         )
         chapter_outputs = []
         full_story_entry = None
@@ -660,27 +705,25 @@ def start_worker_thread():
 
 def load_config():
     """Load configuration from file"""
+    config = DEFAULT_CONFIG.copy()
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
-    return {
-        "mode": "local",
-        "replicate_api_key": "",
-        "chunk_size": 500,
-        "sample_rate": 24000,
-        "speed": 1.0,
-        "output_format": "mp3",
-        "crossfade_duration": 0.1,
-        "gemini_api_key": "",
-        "gemini_model": DEFAULT_GEMINI_MODEL,
-        "gemini_prompt": ""
-    }
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                config.update({k: v for k, v in data.items() if k in DEFAULT_CONFIG})
+        except Exception as exc:
+            logger.warning(f"Failed to load config.json, using defaults: {exc}")
+    return config
 
 
 def save_config(config):
     """Save configuration to file"""
+    merged = DEFAULT_CONFIG.copy()
+    if isinstance(config, dict):
+        merged.update({k: v for k, v in config.items() if k in DEFAULT_CONFIG})
     with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f, indent=2)
+        json.dump(merged, f, indent=2)
 
 
 @app.route('/')
@@ -946,37 +989,38 @@ def list_gemini_models():
 def analyze_text():
     """Analyze text and return statistics"""
     try:
-        data = request.json
-        text = (data.get('text') or '').strip()
+        with log_request_timing("POST /api/analyze"):
+            data = request.json
+            text = (data.get('text') or '').strip()
 
-        if not text:
+            if not text:
+                return jsonify({
+                    "success": False,
+                    "error": "No text provided"
+                }), 400
+
+            config = load_config()
+            processor = TextProcessor(chunk_size=config['chunk_size'])
+            stats = processor.get_statistics(text)
+            chapter_matches = list(CHAPTER_HEADING_PATTERN.finditer(text))
+            if chapter_matches:
+                chapters = split_text_into_chapters(text)
+                stats['chapter_detection'] = {
+                    "detected": True,
+                    "count": len(chapters),
+                    "titles": [c.get('title') for c in chapters if c.get('title')]
+                }
+            else:
+                stats['chapter_detection'] = {
+                    "detected": False,
+                    "count": 0,
+                    "titles": []
+                }
+
             return jsonify({
-                "success": False,
-                "error": "No text provided"
-            }), 400
-
-        config = load_config()
-        processor = TextProcessor(chunk_size=config['chunk_size'])
-        stats = processor.get_statistics(text)
-        chapter_matches = list(CHAPTER_HEADING_PATTERN.finditer(text))
-        if chapter_matches:
-            chapters = split_text_into_chapters(text)
-            stats['chapter_detection'] = {
-                "detected": True,
-                "count": len(chapters),
-                "titles": [c.get('title') for c in chapters if c.get('title')]
-            }
-        else:
-            stats['chapter_detection'] = {
-                "detected": False,
-                "count": 0,
-                "titles": []
-            }
-
-        return jsonify({
-            "success": True,
-            "statistics": stats
-        })
+                "success": True,
+                "statistics": stats
+            })
 
     except Exception as e:
         logger.error(f"Error analyzing text: {e}")
@@ -1416,106 +1460,125 @@ def download_audio_bundle(job_id):
         }), 500
 
 
+def _build_library_listing():
+    """Scan disk and return library metadata list."""
+    library_items = []
+
+    if not OUTPUT_DIR.exists():
+        return library_items
+
+    for job_dir in OUTPUT_DIR.iterdir():
+        if not job_dir.is_dir():
+            continue
+
+        job_id = job_dir.name
+        metadata = load_job_metadata(job_dir)
+
+        if metadata and metadata.get("chapters"):
+            chapters_data = []
+            total_size = 0
+            created_ts = None
+            full_story_entry = None
+            for chapter in metadata["chapters"]:
+                rel_path = chapter.get("relative_path")
+                if not rel_path:
+                    continue
+                file_path = job_dir / Path(rel_path)
+                if not file_path.exists():
+                    continue
+
+                stat = file_path.stat()
+                created_time = datetime.fromtimestamp(stat.st_ctime)
+                created_ts = created_ts or created_time
+                total_size += stat.st_size
+                chapters_data.append({
+                    "index": chapter.get("index"),
+                    "title": chapter.get("title"),
+                    "output_file": f"/static/audio/{job_id}/{Path(rel_path).as_posix()}",
+                    "relative_path": Path(rel_path).as_posix(),
+                    "file_size": stat.st_size,
+                    "format": file_path.suffix.lstrip('.')
+                })
+
+            full_meta = metadata.get("full_story")
+            if full_meta and full_meta.get("relative_path"):
+                full_path = job_dir / Path(full_meta["relative_path"])
+                if full_path.exists():
+                    stat = full_path.stat()
+                    total_size += stat.st_size
+                    full_story_entry = {
+                        "title": full_meta.get("title", "Full Story"),
+                        "output_file": f"/static/audio/{job_id}/{full_meta['relative_path']}",
+                        "relative_path": full_meta['relative_path'],
+                        "file_size": stat.st_size,
+                        "format": full_path.suffix.lstrip('.')
+                    }
+
+            if chapters_data:
+                chapters_data.sort(key=lambda c: c.get("index") or 0)
+                library_items.append({
+                    "job_id": job_id,
+                    "output_file": chapters_data[0]["output_file"],
+                    "relative_path": chapters_data[0]["relative_path"],
+                    "created_at": (created_ts or datetime.now()).isoformat(),
+                    "file_size": total_size,
+                    "format": metadata.get("output_format", chapters_data[0]["format"]),
+                    "chapter_mode": metadata.get("chapter_mode", False),
+                    "chapters": chapters_data,
+                    "full_story": full_story_entry
+                })
+            continue
+
+        output_files = list(job_dir.glob("output.*"))
+        if output_files:
+            output_file = output_files[0]
+            stat = output_file.stat()
+            created_time = datetime.fromtimestamp(stat.st_ctime)
+            library_items.append({
+                "job_id": job_id,
+                "output_file": f"/static/audio/{job_id}/{output_file.name}",
+                "relative_path": output_file.name,
+                "created_at": created_time.isoformat(),
+                "file_size": stat.st_size,
+                "format": output_file.suffix.lstrip('.'),
+                "chapter_mode": False,
+                "chapters": [{
+                    "index": 1,
+                    "title": "Full Story",
+                    "output_file": f"/static/audio/{job_id}/{output_file.name}",
+                    "relative_path": output_file.name,
+                    "file_size": stat.st_size,
+                    "format": output_file.suffix.lstrip('.')
+                }]
+            })
+
+    library_items.sort(key=lambda x: x['created_at'], reverse=True)
+    return library_items
+
+
 @app.route('/api/library', methods=['GET'])
 def get_library():
     """Get list of all generated audio files"""
     try:
-        library_items = []
+        with log_request_timing("GET /api/library"):
+            now = time.time()
+            cached_items = library_cache["items"]
+            if cached_items is not None and (now - library_cache["timestamp"]) <= LIBRARY_CACHE_TTL:
+                return jsonify({
+                    "success": True,
+                    "items": cached_items,
+                    "cached": True
+                })
 
-        if OUTPUT_DIR.exists():
-            for job_dir in OUTPUT_DIR.iterdir():
-                if not job_dir.is_dir():
-                    continue
+            library_items = _build_library_listing()
+            library_cache["items"] = library_items
+            library_cache["timestamp"] = now
 
-                job_id = job_dir.name
-                metadata = load_job_metadata(job_dir)
-
-                if metadata and metadata.get("chapters"):
-                    chapters_data = []
-                    total_size = 0
-                    created_ts = None
-                    full_story_entry = None
-                    for chapter in metadata["chapters"]:
-                        rel_path = chapter.get("relative_path")
-                        if not rel_path:
-                            continue
-                        file_path = job_dir / Path(rel_path)
-                        if not file_path.exists():
-                            continue
-
-                        stat = file_path.stat()
-                        created_time = datetime.fromtimestamp(stat.st_ctime)
-                        created_ts = created_ts or created_time
-                        total_size += stat.st_size
-                        chapters_data.append({
-                            "index": chapter.get("index"),
-                            "title": chapter.get("title"),
-                            "output_file": f"/static/audio/{job_id}/{Path(rel_path).as_posix()}",
-                            "relative_path": Path(rel_path).as_posix(),
-                            "file_size": stat.st_size,
-                            "format": file_path.suffix.lstrip('.')
-                        })
-
-                    full_meta = metadata.get("full_story")
-                    if full_meta and full_meta.get("relative_path"):
-                        full_path = job_dir / Path(full_meta["relative_path"])
-                        if full_path.exists():
-                            stat = full_path.stat()
-                            total_size += stat.st_size
-                            full_story_entry = {
-                                "title": full_meta.get("title", "Full Story"),
-                                "output_file": f"/static/audio/{job_id}/{full_meta['relative_path']}",
-                                "relative_path": full_meta['relative_path'],
-                                "file_size": stat.st_size,
-                                "format": full_path.suffix.lstrip('.')
-                            }
-
-                    if chapters_data:
-                        chapters_data.sort(key=lambda c: c.get("index") or 0)
-                        library_items.append({
-                            "job_id": job_id,
-                            "output_file": chapters_data[0]["output_file"],
-                            "relative_path": chapters_data[0]["relative_path"],
-                            "created_at": (created_ts or datetime.now()).isoformat(),
-                            "file_size": total_size,
-                            "format": metadata.get("output_format", chapters_data[0]["format"]),
-                            "chapter_mode": metadata.get("chapter_mode", False),
-                            "chapters": chapters_data,
-                            "full_story": full_story_entry
-                        })
-                    continue
-
-                # Fallback for legacy jobs without metadata
-                output_files = list(job_dir.glob("output.*"))
-                if output_files:
-                    output_file = output_files[0]
-                    stat = output_file.stat()
-                    created_time = datetime.fromtimestamp(stat.st_ctime)
-                    library_items.append({
-                        "job_id": job_id,
-                        "output_file": f"/static/audio/{job_id}/{output_file.name}",
-                        "relative_path": output_file.name,
-                        "created_at": created_time.isoformat(),
-                        "file_size": stat.st_size,
-                        "format": output_file.suffix.lstrip('.'),
-                        "chapter_mode": False,
-                        "chapters": [{
-                            "index": 1,
-                            "title": "Full Story",
-                            "output_file": f"/static/audio/{job_id}/{output_file.name}",
-                            "relative_path": output_file.name,
-                            "file_size": stat.st_size,
-                            "format": output_file.suffix.lstrip('.')
-                        }]
-                    })
-
-        # Sort by creation time, newest first
-        library_items.sort(key=lambda x: x['created_at'], reverse=True)
-
-        return jsonify({
-            "success": True,
-            "items": library_items
-        })
+            return jsonify({
+                "success": True,
+                "items": library_items,
+                "cached": False
+            })
         
     except Exception as e:
         logger.error(f"Error getting library: {e}", exc_info=True)
@@ -1544,6 +1607,7 @@ def delete_library_item(job_id):
         # Remove from jobs dict if present
         if job_id in jobs:
             del jobs[job_id]
+        invalidate_library_cache()
         
         return jsonify({
             "success": True
@@ -1620,35 +1684,34 @@ def cancel_job(job_id):
 def get_queue():
     """Get current job queue and all jobs"""
     try:
-        with queue_lock:
-            # Get all jobs sorted by creation time
-            all_jobs = []
-            for job_id, job_info in jobs.items():
-                all_jobs.append({
-                    "job_id": job_id,
-                    "status": job_info.get("status", "unknown"),
-                    "progress": job_info.get("progress", 0),
-                    "created_at": job_info.get("created_at", ""),
-                    "text_preview": job_info.get("text_preview", ""),
-                    "output_file": job_info.get("output_file", ""),
-                    "error": job_info.get("error", ""),
-                    "total_chunks": job_info.get("total_chunks"),
-                    "processed_chunks": job_info.get("processed_chunks", 0),
-                    "eta_seconds": job_info.get("eta_seconds"),
-                    "chapter_mode": job_info.get("chapter_mode", False),
-                    "chapter_count": job_info.get("chapter_count"),
-                    "full_story_requested": job_info.get("full_story_requested", False)
-                })
+        with log_request_timing("GET /api/queue"):
+            with queue_lock:
+                all_jobs = []
+                for job_id, job_info in jobs.items():
+                    all_jobs.append({
+                        "job_id": job_id,
+                        "status": job_info.get("status", "unknown"),
+                        "progress": job_info.get("progress", 0),
+                        "created_at": job_info.get("created_at", ""),
+                        "text_preview": job_info.get("text_preview", ""),
+                        "output_file": job_info.get("output_file", ""),
+                        "error": job_info.get("error", ""),
+                        "total_chunks": job_info.get("total_chunks"),
+                        "processed_chunks": job_info.get("processed_chunks", 0),
+                        "eta_seconds": job_info.get("eta_seconds"),
+                        "chapter_mode": job_info.get("chapter_mode", False),
+                        "chapter_count": job_info.get("chapter_count"),
+                        "full_story_requested": job_info.get("full_story_requested", False)
+                    })
+                
+                all_jobs.sort(key=lambda x: x['created_at'], reverse=True)
             
-            # Sort by creation time (newest first)
-            all_jobs.sort(key=lambda x: x['created_at'], reverse=True)
-        
-        return jsonify({
-            "success": True,
-            "jobs": all_jobs,
-            "current_job": current_job_id,
-            "queue_size": job_queue.qsize()
-        })
+            return jsonify({
+                "success": True,
+                "jobs": all_jobs,
+                "current_job": current_job_id,
+                "queue_size": job_queue.qsize()
+            })
         
     except Exception as e:
         logger.error(f"Error getting queue: {e}")

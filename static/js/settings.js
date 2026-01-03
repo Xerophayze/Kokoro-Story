@@ -148,6 +148,10 @@ function applySettings(settings) {
     
     // Crossfade
     document.getElementById('crossfade').value = settings.crossfade_duration || 0.1;
+    
+    // Silence controls
+    document.getElementById('intro-silence').value = settings.intro_silence_ms ?? 0;
+    document.getElementById('inter-silence').value = settings.inter_chunk_silence_ms ?? 0;
 
     // Gemini settings
     document.getElementById('gemini-api-key').value = settings.gemini_api_key || '';
@@ -176,6 +180,8 @@ async function saveSettings() {
         speed: parseFloat(document.getElementById('speed').value),
         output_format: document.getElementById('output-format').value,
         crossfade_duration: parseFloat(document.getElementById('crossfade').value),
+        intro_silence_ms: parseInt(document.getElementById('intro-silence').value, 10) || 0,
+        inter_chunk_silence_ms: parseInt(document.getElementById('inter-silence').value, 10) || 0,
         gemini_api_key: document.getElementById('gemini-api-key').value,
         gemini_model: document.getElementById('gemini-model').value,
         gemini_prompt: document.getElementById('gemini-prompt').value
@@ -223,7 +229,9 @@ async function resetSettings() {
         chunk_size: 500,
         speed: 1.0,
         output_format: 'mp3',
-        crossfade_duration: 0.1
+        crossfade_duration: 0.1,
+        intro_silence_ms: 0,
+        inter_chunk_silence_ms: 0
     };
     
     try {

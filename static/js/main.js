@@ -4,6 +4,8 @@ let currentJobId = null;
 let currentStats = null;
 let analyzeDebounceTimer = null;
 let lastAnalyzedText = '';
+let analyzeInFlight = false;
+let analyzeRerunRequested = false;
 const ANALYZE_DEBOUNCE_MS = 800;
 const VOICES_EVENT_NAME = window.VOICES_UPDATED_EVENT || 'voices:updated';
 const DEFAULT_FX_STATE = Object.freeze({
@@ -14,6 +16,7 @@ const DEFAULT_FX_STATE = Object.freeze({
 });
 const voiceFxState = {};
 let currentFxPreviewAudio = null;
+let queuePollInFlight = false;
 
 window.customVoiceMap = window.customVoiceMap || {};
 window.addEventListener(VOICES_EVENT_NAME, handleVoicesUpdated);
@@ -651,6 +654,10 @@ async function loadHealthStatus() {
 // Analyze text
 async function analyzeText(options = {}) {
     const { auto = false } = options;
+    if (auto && analyzeInFlight) {
+        analyzeRerunRequested = true;
+        return false;
+    }
     const text = document.getElementById('input-text').value;
     
     if (!text.trim()) {
@@ -662,6 +669,8 @@ async function analyzeText(options = {}) {
         showNotification('Analyzing text...', 'info');
     }
     
+    analyzeInFlight = true;
+    analyzeRerunRequested = false;
     try {
         const response = await fetch('/api/analyze', {
             method: 'POST',
@@ -692,6 +701,14 @@ async function analyzeText(options = {}) {
             alert('Failed to analyze text');
         }
         return false;
+    }
+    finally {
+        const shouldRerun = analyzeRerunRequested;
+        analyzeRerunRequested = false;
+        analyzeInFlight = false;
+        if (shouldRerun) {
+            analyzeText({ auto: true });
+        }
     }
 }
 
@@ -855,23 +872,21 @@ async function generateAudio() {
     
     console.log('Voice assignments for generation:', voiceAssignments);
     
-    // Don't disable the button - allow multiple submissions
-    const generateBtn = document.getElementById('generate-btn');
-    
     const splitByChapter = document.getElementById('split-chapters-checkbox')?.checked || false;
     const generateFullStory = splitByChapter && (document.getElementById('full-story-checkbox')?.checked || false);
+    const payload = {
+        text,
+        split_by_chapter: splitByChapter,
+        generate_full_story: generateFullStory,
+        voice_assignments: voiceAssignments
+    };
     try {
         const response = await fetch('/api/generate', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                text,
-                voice_assignments: voiceAssignments,
-                split_by_chapter: splitByChapter,
-                generate_full_story: generateFullStory
-            })
+            body: JSON.stringify(payload)
         });
         
         const data = await response.json();
@@ -911,6 +926,10 @@ function showNotification(message, type = 'info') {
 
 // Update queue indicator
 async function updateQueueIndicator() {
+    if (queuePollInFlight) {
+        return;
+    }
+    queuePollInFlight = true;
     try {
         const response = await fetch('/api/queue');
         const data = await response.json();
@@ -932,11 +951,14 @@ async function updateQueueIndicator() {
         }
     } catch (error) {
         console.error('Error updating queue indicator:', error);
+    } finally {
+        queuePollInFlight = false;
     }
 }
 
 // Start periodic queue indicator updates
 setInterval(updateQueueIndicator, 2000);
+updateQueueIndicator();
 
 // These functions previously handled inline job progress; in queue mode we
 // only need a lightweight hook to update the latest-audio player.

@@ -305,6 +305,18 @@
                     <input type="number" id="crossfade" value="0.1" min="0" max="1" step="0.05">
                     <small>Smooth transition between audio chunks</small>
                 </div>
+
+                <div class="form-group">
+                    <label for="intro-silence">Intro Silence (milliseconds)</label>
+                    <input type="number" id="intro-silence" value="0" min="0" max="2000" step="100">
+                    <small>Empty space added before the very first line of audio.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="inter-silence">Silence Between Segments (milliseconds)</label>
+                    <input type="number" id="inter-silence" value="0" min="0" max="2000" step="100">
+                    <small>Adds a pause after each generated chunk before the next one begins.</small>
+                </div>
             </div>
 
             <div class="button-group">
