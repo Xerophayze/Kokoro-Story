@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo Kokoro-Story Setup
+echo TTS-Story Setup
 echo ========================================
 echo.
 
@@ -43,7 +43,7 @@ python -m pip install --upgrade pip --quiet
 
 REM Install PyTorch (let pip/PyTorch auto-detect CUDA)
 echo.
-echo [5/7] Installing PyTorch...
+echo [5/8] Installing PyTorch...
 echo This may take several minutes...
 echo.
 
@@ -65,9 +65,9 @@ if errorlevel 1 (
     pip install torch torchvision torchaudio
 )
 
-REM Install other dependencies
+REM Install other dependencies (excluding torch + chatterbox runtime handled separately)
 echo.
-echo [6/7] Installing other Python dependencies...
+echo [6/8] Installing other Python dependencies...
 findstr /v /i "torch" requirements.txt > temp_requirements.txt
 pip install -r temp_requirements.txt
 if errorlevel 1 (
@@ -77,6 +77,17 @@ if errorlevel 1 (
 )
 del temp_requirements.txt
 
+REM Install local Chatterbox runtime
+echo.
+echo [7/8] Installing Chatterbox Turbo runtime...
+pip install chatterbox-tts --no-deps
+if errorlevel 1 (
+    echo ERROR: Failed to install chatterbox-tts
+    pause
+    exit /b 1
+)
+
+call :EnsureVoicePromptFolder
 call :InstallRubberBand
 
 REM Check for espeak-ng
@@ -124,7 +135,7 @@ goto :EOF
 
 :InstallRubberBand
 echo.
-echo [7/7] Installing Rubber Band CLI...
+echo [8/8] Installing Rubber Band CLI...
 set "RB_DIR=%~dp0tools\rubberband"
 set "RB_URL=https://breakfastquay.com/files/releases/rubberband-4.0.0-gpl-executable-windows.zip"
 set "RB_ZIP=%TEMP%\rubberband_cli.zip"

@@ -1,27 +1,34 @@
 """
-Kokoro-Story - Web-based TTS application
+TTS-Story - Web-based TTS application
 """
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 import base64
-import io
+import copy
+import inspect
 import json
 import logging
+import math
+import mimetypes
 import os
 import queue
 import re
-import soundfile as sf
+import shutil
 import stat
 import tempfile
 import threading
 import time
 import uuid
-import zipfile
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from time import perf_counter
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from werkzeug.utils import secure_filename
+import soundfile as sf
 
 from src.audio_effects import VoiceFXSettings
 from src.audio_merger import AudioMerger
@@ -37,7 +44,21 @@ from src.custom_voice_store import (
 from src.gemini_processor import GeminiProcessor, GeminiProcessorError
 from src.replicate_api import ReplicateAPI
 from src.text_processor import TextProcessor
-from src.tts_engine import TTSEngine, KOKORO_AVAILABLE, DEFAULT_SAMPLE_RATE
+from src.engines import TtsEngineBase
+from src.engines.chatterbox_turbo_local_engine import (
+    CHATTERBOX_TURBO_AVAILABLE,
+)
+from src.engines.chatterbox_turbo_replicate_engine import (
+    DEFAULT_CHATTERBOX_TURBO_REPLICATE_MODEL,
+    DEFAULT_CHATTERBOX_TURBO_REPLICATE_VOICE,
+)
+from src.tts_engine import (
+    TTSEngine,
+    KOKORO_AVAILABLE,
+    DEFAULT_SAMPLE_RATE,
+    get_engine,
+    AVAILABLE_ENGINES,
+)
 from src.voice_manager import VoiceManager
 from src.voice_sample_generator import generate_voice_samples
 
@@ -56,28 +77,273 @@ CORS(app)
 CONFIG_FILE = "config.json"
 OUTPUT_DIR = Path("static/audio")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+VOICE_PROMPT_DIR = Path("data/voice_prompts")
+VOICE_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
+VOICE_PROMPT_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
+CHATTERBOX_VOICE_REGISTRY = Path("data/chatterbox_voices.json")
 JOB_METADATA_FILENAME = "metadata.json"
 DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
 LIBRARY_CACHE_TTL = 5  # seconds
+MIN_CHATTERBOX_PROMPT_SECONDS = 5.0
 DEFAULT_CONFIG = {
-    "mode": "local",
     "replicate_api_key": "",
     "chunk_size": 500,
     "sample_rate": 24000,
     "speed": 1.0,
     "output_format": "mp3",
+    "output_bitrate_kbps": 128,
     "crossfade_duration": 0.1,
     "intro_silence_ms": 0,
     "inter_chunk_silence_ms": 0,
     "gemini_api_key": "",
     "gemini_model": DEFAULT_GEMINI_MODEL,
-    "gemini_prompt": ""
+    "gemini_prompt": "",
+    "gemini_prompt_presets": [],
+    "tts_engine": "kokoro",
+    "chatterbox_turbo_local_default_prompt": "",
+    "chatterbox_turbo_local_temperature": 0.8,
+    "chatterbox_turbo_local_top_p": 0.95,
+    "chatterbox_turbo_local_top_k": 1000,
+    "chatterbox_turbo_local_repetition_penalty": 1.2,
+    "chatterbox_turbo_local_cfg_weight": 0.0,
+    "chatterbox_turbo_local_exaggeration": 0.0,
+    "chatterbox_turbo_local_norm_loudness": True,
+    "chatterbox_turbo_local_prompt_norm_loudness": True,
+    "chatterbox_turbo_local_device": "auto",
+    "chatterbox_turbo_replicate_api_token": "",
+    "chatterbox_turbo_replicate_model": DEFAULT_CHATTERBOX_TURBO_REPLICATE_MODEL,
+    "chatterbox_turbo_replicate_voice": DEFAULT_CHATTERBOX_TURBO_REPLICATE_VOICE,
+    "chatterbox_turbo_replicate_temperature": 0.8,
+    "chatterbox_turbo_replicate_top_p": 0.95,
+    "chatterbox_turbo_replicate_top_k": 1000,
+    "chatterbox_turbo_replicate_repetition_penalty": 1.2,
+    "chatterbox_turbo_replicate_seed": None,
 }
+
+CHATTERBOX_TURBO_LOCAL_SETTING_KEYS = {
+    "chatterbox_turbo_local_default_prompt",
+    "chatterbox_turbo_local_temperature",
+    "chatterbox_turbo_local_top_p",
+    "chatterbox_turbo_local_top_k",
+    "chatterbox_turbo_local_repetition_penalty",
+    "chatterbox_turbo_local_cfg_weight",
+    "chatterbox_turbo_local_exaggeration",
+    "chatterbox_turbo_local_norm_loudness",
+    "chatterbox_turbo_local_prompt_norm_loudness",
+    "chatterbox_turbo_local_device",
+}
+CHATTERBOX_TURBO_LOCAL_OPTION_ALIASES = {
+    "default_prompt": "chatterbox_turbo_local_default_prompt",
+    "prompt": "chatterbox_turbo_local_default_prompt",
+    "temperature": "chatterbox_turbo_local_temperature",
+    "top_p": "chatterbox_turbo_local_top_p",
+    "top_k": "chatterbox_turbo_local_top_k",
+    "repetition_penalty": "chatterbox_turbo_local_repetition_penalty",
+    "cfg_weight": "chatterbox_turbo_local_cfg_weight",
+    "exaggeration": "chatterbox_turbo_local_exaggeration",
+    "norm_loudness": "chatterbox_turbo_local_norm_loudness",
+    "prompt_norm_loudness": "chatterbox_turbo_local_prompt_norm_loudness",
+    "device": "chatterbox_turbo_local_device",
+}
+CHATTERBOX_TURBO_LOCAL_BOOLEAN_SETTINGS = {
+    "chatterbox_turbo_local_norm_loudness",
+    "chatterbox_turbo_local_prompt_norm_loudness",
+}
+CHATTERBOX_TURBO_LOCAL_FLOAT_SETTINGS = {
+    "chatterbox_turbo_local_temperature": (0.05, 2.0, 0.8),
+    "chatterbox_turbo_local_top_p": (0.1, 1.0, 0.95),
+    "chatterbox_turbo_local_repetition_penalty": (1.0, 2.0, 1.2),
+    "chatterbox_turbo_local_cfg_weight": (0.0, 2.0, 0.0),
+    "chatterbox_turbo_local_exaggeration": (0.0, 2.0, 0.0),
+}
+CHATTERBOX_TURBO_LOCAL_INT_SETTINGS = {
+    "chatterbox_turbo_local_top_k": (1, 4000, 1000),
+}
+
+CHATTERBOX_TURBO_REPLICATE_SETTING_KEYS = {
+    "chatterbox_turbo_replicate_api_token",
+    "chatterbox_turbo_replicate_model",
+    "chatterbox_turbo_replicate_voice",
+    "chatterbox_turbo_replicate_temperature",
+    "chatterbox_turbo_replicate_top_p",
+    "chatterbox_turbo_replicate_top_k",
+    "chatterbox_turbo_replicate_repetition_penalty",
+    "chatterbox_turbo_replicate_seed",
+}
+CHATTERBOX_TURBO_REPLICATE_OPTION_ALIASES = {
+    "api_token": "chatterbox_turbo_replicate_api_token",
+    "token": "chatterbox_turbo_replicate_api_token",
+    "model": "chatterbox_turbo_replicate_model",
+    "voice": "chatterbox_turbo_replicate_voice",
+    "temperature": "chatterbox_turbo_replicate_temperature",
+    "top_p": "chatterbox_turbo_replicate_top_p",
+    "top_k": "chatterbox_turbo_replicate_top_k",
+    "repetition_penalty": "chatterbox_turbo_replicate_repetition_penalty",
+    "seed": "chatterbox_turbo_replicate_seed",
+}
+CHATTERBOX_TURBO_REPLICATE_FLOAT_SETTINGS = {
+    "chatterbox_turbo_replicate_temperature": (0.05, 2.0, 0.8),
+    "chatterbox_turbo_replicate_top_p": (0.1, 1.0, 0.95),
+    "chatterbox_turbo_replicate_repetition_penalty": (1.0, 2.0, 1.2),
+}
+CHATTERBOX_TURBO_REPLICATE_INT_SETTINGS = {
+    "chatterbox_turbo_replicate_top_k": (1, 4000, 1000),
+}
+
+
+def _measure_audio_duration(audio_path: Path) -> Optional[float]:
+    """
+    Return the duration of an audio file in seconds, or None if it cannot be determined.
+    """
+    try:
+        info = sf.info(str(audio_path))
+        if not info.frames or not info.samplerate:
+            return None
+        duration = info.frames / float(info.samplerate)
+        return duration if duration > 0 else None
+    except Exception as exc:  # pragma: no cover - logging only
+        logger.warning("Unable to measure duration for %s: %s", audio_path, exc)
+        return None
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return bool(value)
+
+
+def _coerce_int(
+    value: Any,
+    *,
+    minimum: int = 1,
+    maximum: Optional[int] = None,
+    fallback: int = 1,
+) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = fallback
+    if parsed < minimum:
+        parsed = minimum
+    if maximum is not None and parsed > maximum:
+        parsed = maximum
+    return parsed
+
+
+def _coerce_float(
+    value: Any,
+    *,
+    minimum: float,
+    maximum: float,
+    fallback: float,
+) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = fallback
+    if parsed < minimum:
+        parsed = minimum
+    if parsed > maximum:
+        parsed = maximum
+    return parsed
+
+
+def _normalize_engine_options(engine_name: str, options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not options:
+        return {}
+    if engine_name == "chatterbox_turbo_local":
+        return _normalize_chatterbox_turbo_local_options(options)
+    if engine_name == "chatterbox_turbo_replicate":
+        return _normalize_chatterbox_turbo_replicate_options(options)
+    return {}
+
+
+def _normalize_chatterbox_turbo_local_options(options: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for raw_key, value in options.items():
+        if raw_key is None:
+            continue
+        key = str(raw_key).strip().lower()
+        canonical = CHATTERBOX_TURBO_LOCAL_OPTION_ALIASES.get(key)
+        if not canonical and key in CHATTERBOX_TURBO_LOCAL_SETTING_KEYS:
+            canonical = key
+        if canonical and canonical in CHATTERBOX_TURBO_LOCAL_SETTING_KEYS:
+            normalized[canonical] = value
+
+    result: Dict[str, Any] = {}
+    for key, value in normalized.items():
+        if key in CHATTERBOX_TURBO_LOCAL_BOOLEAN_SETTINGS:
+            result[key] = _coerce_bool(value)
+            continue
+        if key in CHATTERBOX_TURBO_LOCAL_FLOAT_SETTINGS:
+            minimum, maximum, fallback = CHATTERBOX_TURBO_LOCAL_FLOAT_SETTINGS[key]
+            result[key] = _coerce_float(value, minimum=minimum, maximum=maximum, fallback=fallback)
+            continue
+        if key in CHATTERBOX_TURBO_LOCAL_INT_SETTINGS:
+            minimum, maximum, fallback = CHATTERBOX_TURBO_LOCAL_INT_SETTINGS[key]
+            result[key] = _coerce_int(value, minimum=minimum, maximum=maximum, fallback=fallback)
+            continue
+        result[key] = (value or "").strip() if isinstance(value, str) else (value or "")
+    return result
+
+
+def _normalize_chatterbox_turbo_replicate_options(options: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for raw_key, value in options.items():
+        if raw_key is None:
+            continue
+        key = str(raw_key).strip().lower()
+        canonical = CHATTERBOX_TURBO_REPLICATE_OPTION_ALIASES.get(key)
+        if not canonical and key in CHATTERBOX_TURBO_REPLICATE_SETTING_KEYS:
+            canonical = key
+        if canonical and canonical in CHATTERBOX_TURBO_REPLICATE_SETTING_KEYS:
+            normalized[canonical] = value
+
+    result: Dict[str, Any] = {}
+    for key, value in normalized.items():
+        if key in CHATTERBOX_TURBO_REPLICATE_FLOAT_SETTINGS:
+            minimum, maximum, fallback = CHATTERBOX_TURBO_REPLICATE_FLOAT_SETTINGS[key]
+            result[key] = _coerce_float(value, minimum=minimum, maximum=maximum, fallback=fallback)
+            continue
+        if key in CHATTERBOX_TURBO_REPLICATE_INT_SETTINGS:
+            minimum, maximum, fallback = CHATTERBOX_TURBO_REPLICATE_INT_SETTINGS[key]
+            result[key] = _coerce_int(value, minimum=minimum, maximum=maximum, fallback=fallback)
+            continue
+        if key == "chatterbox_turbo_replicate_seed":
+            const_value = value
+            if isinstance(const_value, str):
+                const_value = const_value.strip()
+            if const_value not in (None, ""):
+                try:
+                    result[key] = int(const_value)
+                except (TypeError, ValueError):
+                    pass
+            continue
+        result[key] = (value or "").strip() if isinstance(value, str) else (value or "")
+    return result
+
+
+def _apply_engine_option_overrides(config: Dict[str, Any], engine_name: str, options: Optional[Dict[str, Any]]):
+    overrides = _normalize_engine_options(engine_name, options or {})
+    config.update(overrides)
 # Allow headings like [narrator]\nChapter 1 or Chapter 1 without tags.
 CHAPTER_HEADING_PATTERN = re.compile(
     r'^\s*(?:\[[^\]]+\]\s*)*(chapter(?:\s+[^\n\r]*)?)',
     re.IGNORECASE | re.MULTILINE
 )
+
+# Exceptions
+class JobCancelled(Exception):
+    """Raised when a job is cancelled mid-processing."""
+
 
 # Global state
 jobs = {}  # Track all jobs (queued, processing, completed)
@@ -86,12 +352,262 @@ current_job_id = None  # Currently processing job
 cancel_flags = {}  # Cancellation flags for jobs
 queue_lock = threading.Lock()  # Lock for thread-safe operations
 worker_thread = None  # Background worker thread
-tts_engine_instance = None  # Cached TTS engine
+tts_engine_instances: Dict[str, TtsEngineBase] = {}
+engine_config_signatures: Dict[str, str] = {}
 tts_engine_lock = threading.Lock()
+chunk_regen_executor = ThreadPoolExecutor(max_workers=2)
 library_cache = {
     "items": None,
     "timestamp": 0.0,
 }
+
+
+def _job_dir_from_entry(job_id: str, job_entry: Dict[str, Any]) -> Path:
+    directory = job_entry.get("job_dir")
+    if directory:
+        return Path(directory)
+    return OUTPUT_DIR / job_id
+
+
+def _chunk_file_url(job_id: str, relative_path: Optional[str]) -> Optional[str]:
+    if not relative_path:
+        return None
+    rel = Path(relative_path).as_posix()
+    return f"/static/audio/{job_id}/{rel}"
+
+
+def _find_chunk_record(job_entry: Dict[str, Any], chunk_id: str):
+    for idx, chunk in enumerate(job_entry.get("chunks") or []):
+        if chunk.get("id") == chunk_id:
+            return idx, chunk
+    return None, None
+
+
+def _clone_voice_assignment(assignment: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(assignment, dict):
+        return None
+    return copy.deepcopy(assignment)
+
+
+def _voice_label_from_assignment(assignment: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(assignment, dict):
+        return None
+    if assignment.get("voice"):
+        return assignment.get("voice")
+    # Check for audio_prompt_path (Chatterbox uses this)
+    prompt = assignment.get("audio_prompt_path")
+    if isinstance(prompt, str) and prompt:
+        # Extract filename and remove .wav extension for cleaner display
+        filename = Path(prompt).name if "/" in prompt or "\\" in prompt else prompt
+        return filename.replace('.wav', '') if filename.endswith('.wav') else filename
+    return None
+
+
+def _normalize_voice_payload(raw_payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw_payload, dict):
+        return None
+    cleaned = {}
+    for key, value in raw_payload.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            trimmed = value.strip()
+            if not trimmed:
+                continue
+            cleaned[key] = trimmed
+            continue
+        cleaned[key] = value
+    return cleaned or None
+
+
+def _has_active_regen_tasks(job_entry: Dict[str, Any]) -> bool:
+    tasks = job_entry.get("regen_tasks") or {}
+    for task in tasks.values():
+        if (task or {}).get("status") in {"queued", "running"}:
+            return True
+    return False
+
+
+def _ensure_review_ready(job_entry: Dict[str, Any]):
+    if not job_entry.get("review_mode"):
+        raise ValueError("Job was not created with review mode enabled.")
+    if not job_entry.get("job_dir"):
+        raise ValueError("Job output directory is unavailable.")
+
+
+def _load_review_manifest(job_id: str, job_entry: Dict[str, Any]) -> Dict[str, Any]:
+    manifest_name = job_entry.get("review_manifest") or "review_manifest.json"
+    job_dir = _job_dir_from_entry(job_id, job_entry)
+    manifest_path = job_dir / manifest_name
+    if not manifest_path.exists():
+        raise FileNotFoundError("Review manifest not found for this job.")
+    with manifest_path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _update_regen_status(job_id: str, chunk_id: str, **fields):
+    with queue_lock:
+        job_entry = jobs.get(job_id)
+        if not job_entry:
+            return
+        regen_tasks = job_entry.setdefault("regen_tasks", {})
+        task_state = regen_tasks.setdefault(chunk_id, {})
+        task_state.update(fields)
+
+
+def _perform_chunk_regeneration(
+    job_id: str,
+    chunk_id: str,
+    text_to_render: str,
+    voice_override: Optional[Dict[str, Any]] = None,
+):
+    with queue_lock:
+        job_entry = jobs.get(job_id)
+        if not job_entry:
+            raise ValueError("Job not found.")
+        idx, chunk = _find_chunk_record(job_entry, chunk_id)
+        if chunk is None:
+            raise ValueError("Chunk not found.")
+        config_snapshot = copy.deepcopy(job_entry.get("config_snapshot") or load_config())
+        job_voice_assignments = copy.deepcopy(job_entry.get("voice_assignments") or {})
+        job_dir = _job_dir_from_entry(job_id, job_entry)
+        speaker = chunk.get("speaker") or "default"
+        relative_file = chunk.get("relative_file")
+        speed = config_snapshot.get("speed", 1.0)
+        sample_rate = config_snapshot.get("sample_rate")
+
+    normalized_override = _normalize_voice_payload(voice_override)
+    chunk_voice_assignment = _clone_voice_assignment(chunk.get("voice_assignment"))
+    default_assignment = _clone_voice_assignment(
+        job_voice_assignments.get(speaker) or job_voice_assignments.get("default")
+    )
+    effective_assignment = chunk_voice_assignment or default_assignment
+    if normalized_override:
+        effective_assignment = {**(effective_assignment or {}), **normalized_override}
+
+    voice_config = copy.deepcopy(job_voice_assignments) if job_voice_assignments else {}
+    if effective_assignment:
+        voice_config = voice_config or {}
+        voice_config[speaker] = effective_assignment
+
+    chunk_text = (text_to_render or "").strip()
+    if not chunk_text:
+        raise ValueError("Chunk text cannot be empty.")
+    if not relative_file:
+        raise ValueError("Chunk does not have an associated file path.")
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="chunk_regen_", dir=job_dir))
+    generated_files: List[str] = []
+    try:
+        segments = [{
+            "speaker": speaker,
+            "text": chunk_text,
+            "chunks": [chunk_text],
+        }]
+        engine_name = _normalize_engine_name(config_snapshot.get("tts_engine"))
+        engine = get_tts_engine(engine_name, config=config_snapshot)
+        generated_files = engine.generate_batch(
+            segments=segments,
+            voice_config=voice_config,
+            output_dir=str(tmp_dir),
+            speed=speed,
+            sample_rate=sample_rate,
+            max_concurrent=1,
+        )
+
+        if not generated_files:
+            raise RuntimeError("TTS engine did not return any audio for the chunk.")
+        temp_file = Path(generated_files[0])
+        target_path = job_dir / relative_file
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(temp_file), str(target_path))
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    with queue_lock:
+        job_entry = jobs.get(job_id)
+        if not job_entry:
+            return
+        _, chunk = _find_chunk_record(job_entry, chunk_id)
+        if chunk:
+            chunk["text"] = chunk_text
+            chunk["regenerated_at"] = datetime.now().isoformat()
+            if effective_assignment:
+                chunk["voice_assignment"] = copy.deepcopy(effective_assignment)
+                voice_label = _voice_label_from_assignment(effective_assignment)
+                if voice_label:
+                    chunk["voice_label"] = voice_label
+                else:
+                    chunk.pop("voice_label", None)
+
+    _persist_chunks_metadata(job_id, job_dir)
+
+
+def _persist_chunks_metadata(job_id: str, job_dir: Path):
+    """Update the chunks_metadata.json file with current chunk state."""
+    with queue_lock:
+        job_entry = jobs.get(job_id)
+        if not job_entry:
+            return
+        job_chunks = job_entry.get("chunks") or []
+        config_snapshot = job_entry.get("config_snapshot") or {}
+        engine_name = _normalize_engine_name(config_snapshot.get("tts_engine"))
+
+    chunks_meta_path = job_dir / "chunks_metadata.json"
+    existing_meta = {}
+    if chunks_meta_path.exists():
+        try:
+            with chunks_meta_path.open("r", encoding="utf-8") as handle:
+                existing_meta = json.load(handle)
+        except Exception:
+            pass
+
+    chunks_meta = {
+        "engine": engine_name,
+        "created_at": existing_meta.get("created_at", datetime.now().isoformat()),
+        "updated_at": datetime.now().isoformat(),
+        "chunks": job_chunks,
+    }
+    with chunks_meta_path.open("w", encoding="utf-8") as handle:
+        json.dump(chunks_meta, handle, indent=2)
+
+
+def _schedule_chunk_regeneration(
+    job_id: str,
+    chunk_id: str,
+    text_to_render: str,
+    voice_payload: Optional[Dict[str, Any]] = None,
+):
+    requested_at = datetime.now().isoformat()
+    normalized_voice = _normalize_voice_payload(voice_payload)
+    with queue_lock:
+        job_entry = jobs.get(job_id)
+        if not job_entry:
+            raise ValueError("Job not found.")
+        regen_tasks = job_entry.setdefault("regen_tasks", {})
+        regen_tasks[chunk_id] = {
+            "status": "queued",
+            "requested_at": requested_at,
+            "error": None,
+            "voice": normalized_voice,
+        }
+
+    def task():
+        try:
+            _update_regen_status(job_id, chunk_id, status="running", started_at=datetime.now().isoformat(), error=None)
+            _perform_chunk_regeneration(job_id, chunk_id, text_to_render, voice_override=normalized_voice)
+            _update_regen_status(job_id, chunk_id, status="completed", completed_at=datetime.now().isoformat())
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Chunk regeneration failed for job %s chunk %s: %s", job_id, chunk_id, exc, exc_info=True)
+            _update_regen_status(
+                job_id,
+                chunk_id,
+                status="failed",
+                error=str(exc),
+                completed_at=datetime.now().isoformat(),
+            )
+
+    chunk_regen_executor.submit(task)
 
 
 @contextmanager
@@ -114,24 +630,137 @@ def invalidate_library_cache():
     library_cache["timestamp"] = 0.0
 
 
-def get_tts_engine():
-    """Return a shared TTSEngine instance to avoid repeatedly re-loading Kokoro models."""
-    if not KOKORO_AVAILABLE:
-        raise ImportError("Kokoro is not installed. Run setup to enable local mode.")
+def _normalize_engine_name(name: Optional[str]) -> str:
+    value = (name or DEFAULT_CONFIG["tts_engine"]).strip().lower()
+    return value or DEFAULT_CONFIG["tts_engine"]
 
-    global tts_engine_instance
+
+def _engine_signature(engine_name: str, config: Dict) -> str:
+    """Generate a signature capturing settings that require a fresh engine."""
+    config = config or {}
+    if engine_name == "chatterbox_turbo_local":
+        parts = (
+            (config.get("chatterbox_turbo_local_default_prompt") or "").strip(),
+            str(config.get("chatterbox_turbo_local_temperature")),
+            str(config.get("chatterbox_turbo_local_top_p")),
+            str(config.get("chatterbox_turbo_local_top_k")),
+            str(config.get("chatterbox_turbo_local_repetition_penalty")),
+            str(config.get("chatterbox_turbo_local_cfg_weight")),
+            str(config.get("chatterbox_turbo_local_exaggeration")),
+            str(bool(config.get("chatterbox_turbo_local_norm_loudness", True))),
+            str(bool(config.get("chatterbox_turbo_local_prompt_norm_loudness", True))),
+        )
+        return f"{engine_name}::{'|'.join(parts)}"
+    if engine_name == "chatterbox_turbo_replicate":
+        parts = (
+            (config.get("chatterbox_turbo_replicate_api_token") or "").strip(),
+            (config.get("chatterbox_turbo_replicate_model") or "").strip(),
+            (config.get("chatterbox_turbo_replicate_voice") or "").strip(),
+            str(config.get("chatterbox_turbo_replicate_temperature")),
+            str(config.get("chatterbox_turbo_replicate_top_p")),
+            str(config.get("chatterbox_turbo_replicate_top_k")),
+            str(config.get("chatterbox_turbo_replicate_repetition_penalty")),
+            str(config.get("chatterbox_turbo_replicate_seed")),
+        )
+        return f"{engine_name}::{'|'.join(parts)}"
+    if engine_name == "kokoro_replicate":
+        parts = (
+            (config.get("replicate_api_key") or "").strip(),
+        )
+        return f"{engine_name}::{'|'.join(parts)}"
+    return engine_name
+
+
+def _create_engine(engine_name: str, config: Dict) -> TtsEngineBase:
+    """Instantiate a specific engine with configuration-derived options."""
+    config = config or {}
+    if engine_name == "kokoro":
+        if not KOKORO_AVAILABLE:
+            raise ImportError("Kokoro is not installed. Run setup to enable local mode.")
+        device = config.get("device", "auto")
+        return TTSEngine(device=device)
+
+    if engine_name == "chatterbox_turbo_local":
+        if not CHATTERBOX_TURBO_AVAILABLE:
+            raise ImportError(
+                "chatterbox-tts is not installed. Run setup to enable the local Chatterbox Turbo engine."
+            )
+        device = (config.get("chatterbox_turbo_local_device") or config.get("device") or "auto").strip()
+        return get_engine(
+            "chatterbox_turbo_local",
+            device=device or "auto",
+            default_prompt=(config.get("chatterbox_turbo_local_default_prompt") or "").strip() or None,
+            temperature=float(config.get("chatterbox_turbo_local_temperature") or 0.8),
+            top_p=float(config.get("chatterbox_turbo_local_top_p") or 0.95),
+            top_k=int(config.get("chatterbox_turbo_local_top_k") or 1000),
+            repetition_penalty=float(config.get("chatterbox_turbo_local_repetition_penalty") or 1.2),
+            cfg_weight=float(config.get("chatterbox_turbo_local_cfg_weight") or 0.0),
+            exaggeration=float(config.get("chatterbox_turbo_local_exaggeration") or 0.0),
+            norm_loudness=bool(config.get("chatterbox_turbo_local_norm_loudness", True)),
+            prompt_norm_loudness=bool(config.get("chatterbox_turbo_local_prompt_norm_loudness", True)),
+        )
+
+    if engine_name == "chatterbox_turbo_replicate":
+        # Use shared replicate_api_key, fall back to engine-specific token for backward compatibility
+        api_token = (config.get("replicate_api_key") or config.get("chatterbox_turbo_replicate_api_token") or "").strip()
+        if not api_token:
+            raise ValueError("Replicate API token is required for Chatterbox (Replicate). Configure it in the Kokoro · Replicate settings section.")
+        return get_engine(
+            "chatterbox_turbo_replicate",
+            api_token=api_token,
+            model_version=(config.get("chatterbox_turbo_replicate_model") or DEFAULT_CHATTERBOX_TURBO_REPLICATE_MODEL).strip()
+            or DEFAULT_CHATTERBOX_TURBO_REPLICATE_MODEL,
+            default_voice=(config.get("chatterbox_turbo_replicate_voice") or DEFAULT_CHATTERBOX_TURBO_REPLICATE_VOICE).strip()
+            or DEFAULT_CHATTERBOX_TURBO_REPLICATE_VOICE,
+            temperature=float(config.get("chatterbox_turbo_replicate_temperature") or 0.8),
+            top_p=float(config.get("chatterbox_turbo_replicate_top_p") or 0.95),
+            top_k=int(config.get("chatterbox_turbo_replicate_top_k") or 1000),
+            repetition_penalty=float(config.get("chatterbox_turbo_replicate_repetition_penalty") or 1.2),
+            seed=(
+                int(config["chatterbox_turbo_replicate_seed"])
+                if config.get("chatterbox_turbo_replicate_seed") not in (None, "")
+                else None
+            ),
+        )
+
+    if engine_name == "kokoro_replicate":
+        api_key = (config.get("replicate_api_key") or "").strip()
+        if not api_key:
+            raise ValueError("Replicate API key is required for Kokoro (Replicate).")
+        return ReplicateAPI(api_key)
+
+    raise ValueError(f"Unsupported local TTS engine '{engine_name}'.")
+
+
+def get_tts_engine(engine_name: Optional[str] = None, config: Optional[Dict] = None):
+    """Return a shared engine instance keyed by engine name and config signature."""
+    selected = _normalize_engine_name(engine_name)
+    config = config or load_config()
+    signature = _engine_signature(selected, config)
+
     with tts_engine_lock:
-        if tts_engine_instance is None:
-            tts_engine_instance = TTSEngine()
-        return tts_engine_instance
+        cached = tts_engine_instances.get(selected)
+        if cached and engine_config_signatures.get(selected) == signature:
+            return cached
+
+        if cached:
+            try:
+                cached.cleanup()
+            except Exception:
+                logger.warning("Failed to cleanup engine '%s' before reload.", selected, exc_info=True)
+
+        engine = _create_engine(selected, config)
+        tts_engine_instances[selected] = engine
+        engine_config_signatures[selected] = signature
+        return engine
 
 
 def clear_cached_custom_voice(voice_code: str | None = None) -> int:
     """Ensure cached blended tensors stay in sync after CRUD operations."""
-    global tts_engine_instance
-    if tts_engine_instance is None:
+    engine = tts_engine_instances.get("kokoro")
+    if engine is None:
         return 0
-    return tts_engine_instance.clear_custom_voice_cache(voice_code)
+    return engine.clear_custom_voice_cache(voice_code)
 
 
 def _voice_manager_for_custom_voices() -> VoiceManager:
@@ -260,7 +889,9 @@ def split_text_into_chapters(text: str):
     if first_start > 0:
         pre_content = text[:first_start].strip()
         if pre_content:
-            chapters.append({"title": "Prologue", "content": pre_content})
+            # Create a "Title" chapter for content before the first chapter heading
+            # This allows the narrator to announce the title separately with adjustable timing
+            chapters.append({"title": "Title", "content": pre_content})
 
     for idx, match in enumerate(matches):
         start = match.start()
@@ -291,7 +922,7 @@ def build_gemini_sections(text: str, prefer_chapters: bool, config: dict):
                 "source": "chapter"
             })
     else:
-        processor = TextProcessor(chunk_size=config.get('chunk_size', 500))
+        processor = _create_text_processor_for_engine(config.get("tts_engine"), config.get('chunk_size', 500))
         chunks = processor.chunk_text(text)
         if not chunks:
             chunks = [text]
@@ -328,23 +959,36 @@ def compose_gemini_prompt(section: dict, prompt_prefix: str = "", known_speakers
     return "\n\n".join(parts).strip()
 
 
+def _is_chatterbox_engine(engine_name: str) -> bool:
+    normalized = _normalize_engine_name(engine_name)
+    return normalized.startswith("chatterbox")
+
+
+def _create_text_processor_for_engine(engine_name: str, chunk_size: int) -> TextProcessor:
+    if _is_chatterbox_engine(engine_name):
+        return TextProcessor(
+            chunk_strategy="characters",
+            char_soft_limit=450,
+            char_hard_limit=500,
+        )
+    return TextProcessor(chunk_size=chunk_size)
+
+
 def estimate_total_chunks(
     text: str,
     split_by_chapter: bool,
     chunk_size: int,
-    include_full_story: bool = False
+    include_full_story: bool = False,
+    engine_name: Optional[str] = None,
 ) -> int:
     """Estimate total chunk count for a job to power progress indicators."""
-    processor = TextProcessor(chunk_size=chunk_size)
+    processor = _create_text_processor_for_engine(engine_name or DEFAULT_CONFIG["tts_engine"], chunk_size)
     sections = [{"content": text}]
     if split_by_chapter:
         detected = split_text_into_chapters(text)
         if detected:
             sections = detected
 
-    merge_steps = len(sections) if sections else 1
-    if include_full_story and split_by_chapter and sections:
-        merge_steps += 1  # additional merge for full-length audiobook
     total_chunks = 0
     for section in sections:
         section_text = (section.get("content") or "").strip()
@@ -354,7 +998,7 @@ def estimate_total_chunks(
         for segment in segments:
             total_chunks += len(segment.get("chunks", []))
 
-    return max(total_chunks + merge_steps, 1)
+    return max(total_chunks, 1)
 
 
 def save_job_metadata(job_dir: Path, metadata: dict):
@@ -452,19 +1096,20 @@ def process_audio_job(job_data):
     try:
         # Check for cancellation
         if cancel_flags.get(job_id, False):
-            logger.info(f"Job {job_id} cancelled during processing")
-            with queue_lock:
-                jobs[job_id]['status'] = 'cancelled'
-            return
+            raise JobCancelled()
         
-        processor = TextProcessor(chunk_size=config['chunk_size'])
-        job_dir = OUTPUT_DIR / job_id
+        review_mode = bool(job_data.get('review_mode', False))
+        merge_options_override = job_data.get('merge_options') or {}
+        processor = _create_text_processor_for_engine(config.get("tts_engine"), config["chunk_size"])
+        job_dir = Path(job_data.get('job_dir') or (OUTPUT_DIR / job_id))
         job_dir.mkdir(parents=True, exist_ok=True)
         total_chunks = max(1, job_data.get('total_chunks') or jobs.get(job_id, {}).get('total_chunks') or 1)
         processed_chunks = 0
         job_start_time = datetime.now()
 
         def update_progress(increment: int = 1):
+            if cancel_flags.get(job_id, False):
+                raise JobCancelled()
             nonlocal processed_chunks
             processed_chunks += increment
             processed_chunks = min(processed_chunks, total_chunks)
@@ -506,65 +1151,124 @@ def process_audio_job(job_data):
                 job_entry['chapter_mode'] = split_by_chapter
                 job_entry['full_story_requested'] = generate_full_story
         
-        mode = config['mode']
         output_format = config['output_format']
         crossfade_seconds = float(config.get('crossfade_duration', 0) or 0)
-        merger = AudioMerger(
+        merger = None if review_mode else AudioMerger(
             crossfade_ms=int(max(0.0, crossfade_seconds) * 1000),
             intro_silence_ms=int(max(0, config.get('intro_silence_ms', 0) or 0)),
-            inter_chunk_silence_ms=int(max(0, config.get('inter_chunk_silence_ms', 0) or 0))
+            inter_chunk_silence_ms=int(max(0, config.get('inter_chunk_silence_ms', 0) or 0)),
+            bitrate_kbps=int(config.get('output_bitrate_kbps') or 0)
         )
         chapter_outputs = []
         full_story_entry = None
         all_full_story_chunks = [] if (split_by_chapter and generate_full_story) else None
         chunk_dirs_to_cleanup = []
+        review_manifest = {
+            "chapter_mode": split_by_chapter,
+            "chapters": [],
+            "full_story_requested": generate_full_story,
+            "output_format": output_format,
+            "chunk_dirs_to_cleanup": [],
+            "all_full_story_chunks": [],
+        }
         
-        # Prepare TTS engine/API
-        engine = None
-        api = None
-        if mode == "local":
-            if not KOKORO_AVAILABLE:
-                raise Exception("Kokoro not installed. Use Replicate API or install kokoro.")
-            engine = get_tts_engine()
-        else:
-            api_key = config.get('replicate_api_key', '')
-            if not api_key:
-                raise Exception("Replicate API key not configured")
-            api = ReplicateAPI(api_key)
+        # Prepare TTS engine
+        engine_name = _normalize_engine_name(config.get("tts_engine"))
+        engine = get_tts_engine(engine_name, config=config)
 
-        def generate_chunks(section_text, output_dir: Path):
+        job_chunks: List[Dict[str, Any]] = []
+
+        def register_chunk(chapter_idx: int, chunk_idx: int, segment: Dict[str, Any], file_path: str):
+            chunk_id = f"{chapter_idx}-{chunk_idx}-{len(job_chunks)}"
+            speaker_name = segment.get("speaker")
+            speaker_assignment = None
+            if voice_assignments:
+                candidate = voice_assignments.get(speaker_name) or voice_assignments.get("default")
+                speaker_assignment = _clone_voice_assignment(candidate)
+            voice_label = _voice_label_from_assignment(speaker_assignment)
+            record = {
+                "id": chunk_id,
+                "order_index": len(job_chunks),
+                "chapter_index": chapter_idx,
+                "chunk_index": chunk_idx,
+                "speaker": segment.get("speaker"),
+                "text": segment.get("text"),
+                "file_path": file_path,
+                "relative_file": os.path.relpath(file_path, job_dir),
+                "duration_seconds": segment.get("duration_seconds"),
+                "voice_assignment": speaker_assignment,
+            }
+            if voice_label:
+                record["voice_label"] = voice_label
+            job_chunks.append(record)
+            with queue_lock:
+                job_entry = jobs.get(job_id)
+                if job_entry is not None:
+                    job_entry.setdefault("chunks", []).append(record)
+
+        def make_chunk_callback(chapter_idx: int):
+            def chunk_cb(chunk_idx: int, segment: Dict[str, Any], file_path: str):
+                register_chunk(chapter_idx, chunk_idx, segment, file_path)
+                update_progress(0)  # keep progress logic centralized
+            return chunk_cb
+
+        def generate_chunks(chapter_idx: int, section_text: str, output_dir: Path):
+            if cancel_flags.get(job_id, False):
+                raise JobCancelled()
             segments = processor.process_text(section_text)
             if not segments:
                 return []
             output_dir.mkdir(parents=True, exist_ok=True)
-            if mode == "local":
-                return engine.generate_batch(
-                    segments=segments,
-                    voice_config=voice_assignments,
-                    output_dir=str(output_dir),
-                    speed=config['speed'],
-                    progress_cb=update_progress
-                )
-            return api.generate_batch(
-                segments=segments,
-                voice_config=voice_assignments,
-                output_dir=str(output_dir),
-                speed=config['speed'],
-                progress_cb=update_progress
-            )
+            chunk_cb = make_chunk_callback(chapter_idx)
+            supports_chunk_cb = False
+            flat_segments: List[Dict[str, Any]] = []
+            for seg_idx, segment in enumerate(segments):
+                speaker = segment.get("speaker")
+                chunks = segment.get("chunks") or []
+                for chunk_idx, chunk_text in enumerate(chunks):
+                    flat_segments.append({
+                        "segment_index": seg_idx,
+                        "chunk_index": chunk_idx,
+                        "speaker": speaker,
+                        "text": chunk_text,
+                    })
+            engine_kwargs = {
+                "segments": segments,
+                "voice_config": voice_assignments,
+                "output_dir": str(output_dir),
+                "speed": config['speed'],
+                "progress_cb": update_progress,
+            }
+            sig_params = inspect.signature(engine.generate_batch).parameters
+            if "sample_rate" in sig_params:
+                engine_kwargs["sample_rate"] = config.get("sample_rate")
+            if "chunk_cb" in sig_params:
+                engine_kwargs["chunk_cb"] = chunk_cb
+                supports_chunk_cb = True
+            audio_files = engine.generate_batch(**engine_kwargs)
+
+            if not supports_chunk_cb and audio_files:
+                for order_idx, file_path in enumerate(audio_files):
+                    if order_idx >= len(flat_segments):
+                        break
+                    descriptor = flat_segments[order_idx]
+                    register_chunk(
+                        chapter_idx,
+                        descriptor["chunk_index"],
+                        descriptor,
+                        file_path,
+                    )
+            return audio_files
 
         try:
             if split_by_chapter:
                 for idx, chapter in enumerate(chapter_sections, start=1):
                     if cancel_flags.get(job_id, False):
-                        logger.info(f"Job {job_id} cancelled before finishing chapter {idx}")
-                        with queue_lock:
-                            jobs[job_id]['status'] = 'cancelled'
-                        return
+                        raise JobCancelled()
 
                     chapter_dir = job_dir / f"chapter_{idx:02d}"
                     chunk_dir = chapter_dir / "chunks"
-                    audio_files = generate_chunks(chapter["content"], chunk_dir)
+                    audio_files = generate_chunks(idx - 1, chapter["content"], chunk_dir)
                     if not audio_files:
                         logger.warning(f"Chapter {idx} had no audio chunks; skipping")
                         continue
@@ -576,57 +1280,86 @@ def process_audio_job(job_data):
                     slug = slugify_filename(chapter['title'], f"chapter-{idx:02d}")
                     output_filename = f"{slug}.{output_format}"
                     output_path = chapter_dir / output_filename
+
+                    if review_mode:
+                        rel_chunk_dir = os.path.relpath(chunk_dir, job_dir)
+                        rel_chapter_dir = os.path.relpath(chapter_dir, job_dir)
+                        rel_chunk_files = [os.path.relpath(path, job_dir) for path in audio_files]
+                        review_manifest["chapters"].append({
+                            "index": idx - 1,  # 0-indexed to match chunk.chapter_index
+                            "title": chapter['title'],
+                            "chunk_dir": rel_chunk_dir,
+                            "chunk_files": rel_chunk_files,
+                            "chapter_dir": rel_chapter_dir,
+                            "output_filename": output_filename,
+                        })
+                        review_manifest["chunk_dirs_to_cleanup"].append(rel_chunk_dir)
+                    else:
+                        merger.merge_wav_files(
+                            input_files=audio_files,
+                            output_path=str(output_path),
+                            format=output_format,
+                            cleanup_chunks=not generate_full_story
+                        )
+                        update_progress()
+
+                        # Cleanup empty chunk directory
+                        if chunk_dir.exists() and not generate_full_story:
+                            try:
+                                chunk_dir.rmdir()
+                            except OSError:
+                                pass
+
+                        relative_path = Path(f"chapter_{idx:02d}") / output_filename
+                        chapter_outputs.append({
+                            "index": idx,
+                            "title": chapter['title'],
+                            "file_url": f"/static/audio/{job_id}/{relative_path.as_posix()}",
+                            "relative_path": relative_path.as_posix()
+                        })
+            else:
+                chunk_dir = job_dir / "chunks"
+                audio_files = generate_chunks(0, text, chunk_dir)
+                if not audio_files:
+                    raise ValueError("Unable to generate audio chunks")
+                output_file = job_dir / f"output.{output_format}"
+                if review_mode:
+                    rel_chunk_dir = os.path.relpath(chunk_dir, job_dir)
+                    rel_chapter_dir = os.path.relpath(job_dir, job_dir)
+                    rel_chunk_files = [os.path.relpath(path, job_dir) for path in audio_files]
+                    review_manifest["chapters"].append({
+                        "index": 1,
+                        "title": "Full Story",
+                        "chunk_dir": rel_chunk_dir,
+                        "chunk_files": rel_chunk_files,
+                        "chapter_dir": rel_chapter_dir,
+                        "output_filename": output_file.name,
+                    })
+                    review_manifest["chunk_dirs_to_cleanup"].append(rel_chunk_dir)
+                else:
                     merger.merge_wav_files(
                         input_files=audio_files,
-                        output_path=str(output_path),
-                        format=output_format,
-                        cleanup_chunks=not generate_full_story
+                        output_path=str(output_file),
+                        format=output_format
                     )
                     update_progress()
-
-                    # Cleanup empty chunk directory
-                    if chunk_dir.exists() and not generate_full_story:
+                    if chunk_dir.exists():
                         try:
                             chunk_dir.rmdir()
                         except OSError:
                             pass
 
-                    relative_path = Path(f"chapter_{idx:02d}") / output_filename
                     chapter_outputs.append({
-                        "index": idx,
-                        "title": chapter['title'],
-                        "file_url": f"/static/audio/{job_id}/{relative_path.as_posix()}",
-                        "relative_path": relative_path.as_posix()
+                        "index": 1,
+                        "title": "Full Story",
+                        "file_url": f"/static/audio/{job_id}/output.{output_format}",
+                        "relative_path": f"output.{output_format}"
                     })
-            else:
-                chunk_dir = job_dir / "chunks"
-                audio_files = generate_chunks(text, chunk_dir)
-                if not audio_files:
-                    raise ValueError("Unable to generate audio chunks")
-                output_file = job_dir / f"output.{output_format}"
-                merger.merge_wav_files(
-                    input_files=audio_files,
-                    output_path=str(output_file),
-                    format=output_format
-                )
-                update_progress()
-                if chunk_dir.exists():
-                    try:
-                        chunk_dir.rmdir()
-                    except OSError:
-                        pass
-
-                chapter_outputs.append({
-                    "index": 1,
-                    "title": "Full Story",
-                    "file_url": f"/static/audio/{job_id}/output.{output_format}",
-                    "relative_path": f"output.{output_format}"
-                })
 
         except Exception:
             raise
 
-        if all_full_story_chunks:
+        if all_full_story_chunks and not review_mode:
             full_story_name = f"full_story.{output_format}"
             full_story_path = job_dir / full_story_name
             merger.merge_wav_files(
@@ -650,9 +1383,34 @@ def process_audio_job(job_data):
             }
 
         if cancel_flags.get(job_id, False):
-            logger.info(f"Job {job_id} cancelled before completion")
+            raise JobCancelled()
+
+        if review_mode:
+            manifest_path = job_dir / "review_manifest.json"
+            review_manifest["all_full_story_chunks"] = [
+                os.path.relpath(path, job_dir) for path in (all_full_story_chunks or [])
+            ]
+            with manifest_path.open("w", encoding="utf-8") as handle:
+                json.dump(review_manifest, handle, indent=2)
+            chunks_meta_path = job_dir / "chunks_metadata.json"
+            chunks_meta = {
+                "engine": engine_name,
+                "created_at": datetime.now().isoformat(),
+                "chunks": job_chunks,
+            }
+            with chunks_meta_path.open("w", encoding="utf-8") as handle:
+                json.dump(chunks_meta, handle, indent=2)
+            
+            # Auto-finish: merge audio and complete the job (review happens in library)
             with queue_lock:
-                jobs[job_id]['status'] = 'cancelled'
+                job_entry = jobs.get(job_id)
+                if job_entry:
+                    job_entry['review_manifest'] = manifest_path.name
+                    job_entry['chapter_mode'] = split_by_chapter
+                    job_entry['full_story_requested'] = generate_full_story
+            
+            _merge_review_job(job_id, jobs.get(job_id), review_manifest)
+            logger.info(f"Job {job_id} auto-finished and moved to library for chunk review")
             return
 
         if not chapter_outputs:
@@ -686,12 +1444,23 @@ def process_audio_job(job_data):
         
         logger.info(f"Job {job_id} completed successfully with {len(chapter_outputs)} output file(s)")
         
+    except JobCancelled:
+        logger.info(f"Job {job_id} cancelled – halting synthesis")
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if job_entry:
+                job_entry['status'] = 'cancelled'
+                job_entry['eta_seconds'] = None
+                job_entry['last_update'] = datetime.now().isoformat()
+        return
     except Exception as e:
         logger.error(f"Error in job {job_id}: {e}", exc_info=True)
         with queue_lock:
             jobs[job_id]['status'] = 'failed'
             jobs[job_id]['error'] = str(e)
         raise
+    finally:
+        cancel_flags.pop(job_id, None)
 
 
 def start_worker_thread():
@@ -732,6 +1501,98 @@ def index():
     return render_template('index.html')
 
 
+def _load_chatterbox_voice_entries() -> List[Dict[str, Any]]:
+    if not CHATTERBOX_VOICE_REGISTRY.exists():
+        return []
+    try:
+        with CHATTERBOX_VOICE_REGISTRY.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+            if isinstance(data, list):
+                return data
+            logger.warning("Chatterbox voice registry contains invalid data. Resetting.")
+            return []
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error("Unable to read chatterbox voice registry: %s", exc)
+        return []
+
+
+def _save_chatterbox_voice_entries(entries: List[Dict[str, Any]]) -> None:
+    CHATTERBOX_VOICE_REGISTRY.parent.mkdir(parents=True, exist_ok=True)
+    with CHATTERBOX_VOICE_REGISTRY.open("w", encoding="utf-8") as handle:
+        json.dump(entries, handle, indent=2)
+
+
+def _cleanup_orphaned_chatterbox_voices() -> int:
+    """Remove voice entries from registry where the audio file no longer exists.
+    
+    Returns the number of orphaned entries removed.
+    """
+    entries = _load_chatterbox_voice_entries()
+    if not entries:
+        return 0
+    
+    valid_entries = []
+    removed_count = 0
+    for entry in entries:
+        file_name = entry.get("file_name")
+        if not file_name:
+            removed_count += 1
+            continue
+        file_path = VOICE_PROMPT_DIR / file_name
+        if file_path.is_file():
+            valid_entries.append(entry)
+        else:
+            logger.info(f"Removing orphaned Chatterbox voice entry: {entry.get('name', file_name)} (file missing: {file_name})")
+            removed_count += 1
+    
+    if removed_count > 0:
+        _save_chatterbox_voice_entries(valid_entries)
+        logger.info(f"Cleaned up {removed_count} orphaned Chatterbox voice entries")
+    
+    return removed_count
+
+
+def _slugify_filename(value: str) -> str:
+    value = value.lower().strip()
+    value = re.sub(r"[^a-z0-9]+", "_", value)
+    value = value.strip("_")
+    return value or "voice"
+
+
+def _serialize_chatterbox_voice(entry: Dict[str, Any]) -> Dict[str, Any]:
+    file_name = entry.get("file_name")
+    file_path = VOICE_PROMPT_DIR / file_name if file_name else None
+    exists = file_path.is_file() if file_path else False
+    size_bytes = entry.get("size_bytes")
+    duration_seconds = entry.get("duration_seconds")
+    if exists:
+        try:
+            size_bytes = file_path.stat().st_size
+            if duration_seconds is None:
+                duration_seconds = _measure_audio_duration(file_path)
+        except OSError:
+            size_bytes = None
+            duration_seconds = None
+    return {
+        "id": entry.get("id"),
+        "name": entry.get("name"),
+        "file_name": file_name,
+        "prompt_path": file_name,
+        "created_at": entry.get("created_at"),
+        "size_bytes": size_bytes,
+        "missing_file": not exists,
+        "duration_seconds": duration_seconds,
+        "is_valid_prompt": bool(duration_seconds and duration_seconds >= MIN_CHATTERBOX_PROMPT_SECONDS),
+    }
+
+
+def _resolve_chatterbox_voice(entry_id: str, entries: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    for entry in entries:
+        if entry.get("id") == entry_id:
+            return entry
+    return None
+
+
 @app.route('/api/voices', methods=['GET'])
 def get_voices():
     """Get available voices"""
@@ -745,6 +1606,208 @@ def get_voices():
         "total_unique_voices": voice_manager.total_unique_voice_count(),
         "sample_count": voice_manager.sample_count()
     })
+
+
+@app.route('/api/voice-prompts', methods=['GET'])
+def list_voice_prompts():
+    """List available reference audio prompts."""
+    try:
+        prompts = []
+        for path in sorted(VOICE_PROMPT_DIR.glob('*')):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in VOICE_PROMPT_EXTENSIONS:
+                continue
+            try:
+                size_bytes = path.stat().st_size
+            except OSError:
+                size_bytes = None
+            prompts.append(
+                {
+                    "name": path.name,
+                    "display": path.stem.replace('_', ' ').replace('-', ' ').title(),
+                    "size_bytes": size_bytes,
+                }
+            )
+        return jsonify({"success": True, "prompts": prompts})
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Failed to list voice prompts: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to list voice prompts"}), 500
+
+
+@app.route('/api/voice-prompts/upload', methods=['POST'])
+def upload_voice_prompt():
+    """Upload a new reference prompt clip."""
+    file = request.files.get('file')
+    if not file or not file.filename:
+        return jsonify({"success": False, "error": "No file provided"}), 400
+
+    filename = secure_filename(file.filename)
+    if not filename:
+        return jsonify({"success": False, "error": "Invalid filename"}), 400
+
+    suffix = Path(filename).suffix.lower()
+    if suffix not in VOICE_PROMPT_EXTENSIONS:
+        allowed = ", ".join(sorted(ext.lstrip(".") for ext in VOICE_PROMPT_EXTENSIONS))
+        return jsonify(
+            {
+                "success": False,
+                "error": f"Unsupported file type '{suffix}'. Allowed: {allowed}",
+            }
+        ), 400
+
+    target_path = VOICE_PROMPT_DIR / filename
+    stem = Path(filename).stem
+    counter = 1
+    while target_path.exists():
+        target_path = VOICE_PROMPT_DIR / f"{stem}_{counter}{suffix}"
+        counter += 1
+
+    try:
+        file.save(target_path)
+    except Exception as exc:  # pragma: no cover - filesystem failure
+        logger.error("Failed to save uploaded prompt: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to save file"}), 500
+
+    return jsonify(
+        {
+            "success": True,
+            "prompt": {
+                "name": target_path.name,
+                "display": target_path.stem.replace('_', ' ').replace('-', ' ').title(),
+                "size_bytes": target_path.stat().st_size,
+            },
+        }
+    ), 201
+
+
+@app.route('/api/chatterbox-voices', methods=['GET'])
+def list_chatterbox_voices():
+    entries = _load_chatterbox_voice_entries()
+    serialized = [_serialize_chatterbox_voice(entry) for entry in entries]
+    return jsonify({"success": True, "voices": serialized})
+
+
+@app.route('/api/chatterbox-voices', methods=['POST'])
+def create_chatterbox_voice():
+    name = (request.form.get("name") or "").strip()
+    file = request.files.get("file")
+    if not name:
+        return jsonify({"success": False, "error": "Voice name is required."}), 400
+    if not file or not file.filename:
+        return jsonify({"success": False, "error": "Audio file is required."}), 400
+
+    filename = secure_filename(file.filename)
+    suffix = Path(filename).suffix.lower()
+    if suffix not in VOICE_PROMPT_EXTENSIONS:
+        allowed = ", ".join(sorted(ext.lstrip(".") for ext in VOICE_PROMPT_EXTENSIONS))
+        return jsonify(
+            {
+                "success": False,
+                "error": f"Unsupported file type '{suffix}'. Allowed: {allowed}",
+            }
+        ), 400
+
+    slug = _slugify_filename(name)
+    target_path = VOICE_PROMPT_DIR / f"{slug}{suffix}"
+    counter = 1
+    while target_path.exists():
+        target_path = VOICE_PROMPT_DIR / f"{slug}_{counter}{suffix}"
+        counter += 1
+
+    try:
+        file.save(target_path)
+    except Exception as exc:  # pragma: no cover - filesystem failure
+        logger.error("Failed to save chatterbox voice: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to save file"}), 500
+
+    entries = _load_chatterbox_voice_entries()
+    duration_seconds = _measure_audio_duration(target_path)
+    if not duration_seconds:
+        target_path.unlink(missing_ok=True)
+        return jsonify({
+            "success": False,
+            "error": "Unable to determine audio duration. Please upload a standard WAV/MP3 clip."
+        }), 400
+    if duration_seconds < MIN_CHATTERBOX_PROMPT_SECONDS:
+        target_path.unlink(missing_ok=True)
+        return jsonify({
+            "success": False,
+            "error": f"Clip is only {duration_seconds:.2f}s. Chatterbox Turbo requires at least {MIN_CHATTERBOX_PROMPT_SECONDS:.0f} seconds."
+        }), 400
+
+    entry = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "file_name": target_path.name,
+        "created_at": datetime.utcnow().isoformat(),
+        "size_bytes": target_path.stat().st_size,
+        "duration_seconds": duration_seconds,
+    }
+    entries.append(entry)
+    _save_chatterbox_voice_entries(entries)
+
+    serialized = _serialize_chatterbox_voice(entry)
+    return jsonify({"success": True, "voice": serialized}), 201
+
+
+@app.route('/api/chatterbox-voices/<voice_id>', methods=['PUT'])
+def rename_chatterbox_voice(voice_id: str):
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"success": False, "error": "Voice name is required."}), 400
+
+    entries = _load_chatterbox_voice_entries()
+    entry = _resolve_chatterbox_voice(voice_id, entries)
+    if not entry:
+        return jsonify({"success": False, "error": "Voice not found."}), 404
+
+    entry["name"] = name
+    _save_chatterbox_voice_entries(entries)
+    return jsonify({"success": True, "voice": _serialize_chatterbox_voice(entry)})
+
+
+@app.route('/api/chatterbox-voices/<voice_id>', methods=['DELETE'])
+def delete_chatterbox_voice(voice_id: str):
+    entries = _load_chatterbox_voice_entries()
+    entry = _resolve_chatterbox_voice(voice_id, entries)
+    if not entry:
+        return jsonify({"success": False, "error": "Voice not found."}), 404
+
+    file_name = entry.get("file_name")
+    file_path = VOICE_PROMPT_DIR / file_name if file_name else None
+    if file_path and file_path.exists():
+        try:
+            file_path.unlink()
+        except OSError as exc:  # pragma: no cover - filesystem failure
+            logger.warning("Unable to delete voice prompt file %s: %s", file_path, exc)
+
+    entries = [item for item in entries if item.get("id") != voice_id]
+    _save_chatterbox_voice_entries(entries)
+    return jsonify({"success": True})
+
+
+@app.route('/api/chatterbox-voices/<voice_id>/preview')
+def preview_chatterbox_voice(voice_id: str):
+    entries = _load_chatterbox_voice_entries()
+    entry = _resolve_chatterbox_voice(voice_id, entries)
+    if not entry:
+        return jsonify({"success": False, "error": "Voice not found."}), 404
+    file_name = entry.get("file_name")
+    if not file_name:
+        return jsonify({"success": False, "error": "Voice has no associated file."}), 404
+    file_path = VOICE_PROMPT_DIR / file_name
+    if not file_path.exists():
+        return jsonify({"success": False, "error": "Audio file missing on disk."}), 404
+    mime_type, _ = mimetypes.guess_type(file_path.name)
+    return send_file(
+        file_path,
+        mimetype=mime_type or 'audio/mpeg',
+        conditional=True,
+        as_attachment=False,
+        download_name=file_path.name,
+    )
 
 
 @app.route('/api/voices/samples', methods=['POST'])
@@ -778,6 +1841,242 @@ def generate_voice_samples_api():
             "error": "Failed to generate voice samples"
         }), 500
 
+
+def _serialize_chunk_for_response(job_id: str, chunk: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": chunk.get("id"),
+        "order_index": chunk.get("order_index"),
+        "chapter_index": chunk.get("chapter_index"),
+        "chunk_index": chunk.get("chunk_index"),
+        "speaker": chunk.get("speaker"),
+        "text": chunk.get("text"),
+        "relative_file": chunk.get("relative_file"),
+        "file_url": _chunk_file_url(job_id, chunk.get("relative_file")),
+        "duration_seconds": chunk.get("duration_seconds"),
+        "regenerated_at": chunk.get("regenerated_at"),
+        "voice": chunk.get("voice_label"),
+        "voice_assignment": chunk.get("voice_assignment"),
+    }
+
+
+@app.route('/api/jobs/<job_id>/chunks', methods=['GET'])
+def get_job_chunks(job_id: str):
+    """Return chunk metadata for a review-enabled job."""
+    try:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if not job_entry:
+                return jsonify({"success": False, "error": "Job not found"}), 404
+            _ensure_review_ready(job_entry)
+            chunks = [dict(item) for item in (job_entry.get("chunks") or [])]
+            regen_tasks = copy.deepcopy(job_entry.get("regen_tasks") or {})
+            review_status = {
+                "status": job_entry.get("status"),
+                "chapter_mode": job_entry.get("chapter_mode"),
+                "full_story_requested": job_entry.get("full_story_requested"),
+                "has_active_regen": _has_active_regen_tasks(job_entry),
+                "engine": job_entry.get("engine"),
+            }
+
+        payload = {
+            "success": True,
+            "chunks": [_serialize_chunk_for_response(job_id, c) for c in chunks],
+            "regen_tasks": regen_tasks,
+            "review": review_status,
+        }
+        return jsonify(payload)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Failed to load chunks for job %s: %s", job_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to load job chunks"}), 500
+
+
+@app.route('/api/jobs/<job_id>/review/regen', methods=['POST'])
+def request_chunk_regeneration(job_id: str):
+    """Schedule a chunk regeneration request."""
+    data = request.json or {}
+    chunk_id = (data.get("chunk_id") or "").strip()
+    updated_text = (data.get("text") or "").strip()
+    voice_payload = data.get("voice") or {}
+
+    if not chunk_id:
+        return jsonify({"success": False, "error": "chunk_id is required"}), 400
+    if not updated_text:
+        return jsonify({"success": False, "error": "Updated text cannot be empty"}), 400
+
+    try:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if not job_entry:
+                return jsonify({"success": False, "error": "Job not found"}), 404
+            _ensure_review_ready(job_entry)
+            _, chunk = _find_chunk_record(job_entry, chunk_id)
+            if chunk is None:
+                return jsonify({"success": False, "error": "Chunk not found"}), 404
+            regen_tasks = job_entry.setdefault("regen_tasks", {})
+            task_state = regen_tasks.get(chunk_id)
+            if task_state and task_state.get("status") in {"queued", "running"}:
+                return jsonify({"success": False, "error": "Chunk regeneration already in progress"}), 409
+
+        _schedule_chunk_regeneration(job_id, chunk_id, updated_text, voice_payload)
+        return jsonify({"success": True})
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Failed to schedule chunk regen for job %s chunk %s: %s", job_id, chunk_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to schedule chunk regeneration"}), 500
+
+
+@app.route('/api/jobs/<job_id>/review/regen-all', methods=['POST'])
+def request_full_job_regeneration(job_id: str):
+    """Schedule regeneration for every chunk in the job."""
+    data = request.json or {}
+    chunk_updates_raw = data.get("chunks") or []
+    chunk_updates: Dict[str, Dict[str, Any]] = {}
+    for entry in chunk_updates_raw:
+        if not isinstance(entry, dict):
+            continue
+        chunk_key = (entry.get("chunk_id") or "").strip()
+        if not chunk_key:
+            continue
+        chunk_updates[chunk_key] = {
+            "text": (entry.get("text") or "").strip(),
+            "voice": entry.get("voice"),
+        }
+
+    try:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if not job_entry:
+                return jsonify({"success": False, "error": "Job not found"}), 404
+            _ensure_review_ready(job_entry)
+            if _has_active_regen_tasks(job_entry):
+                return jsonify({"success": False, "error": "Chunk regeneration already in progress"}), 409
+            job_chunks = job_entry.get("chunks") or []
+            if not job_chunks:
+                return jsonify({"success": False, "error": "No chunks available to regenerate"}), 400
+            tasks_to_schedule: List[Tuple[str, str, Optional[Dict[str, Any]]]] = []
+            for chunk in job_chunks:
+                chunk_id = chunk.get("id")
+                if not chunk_id:
+                    continue
+                overrides = chunk_updates.get(chunk_id) or {}
+                text_value = (overrides.get("text") or chunk.get("text") or "").strip()
+                if not text_value:
+                    raise ValueError(f"Chunk {chunk_id} does not have text to regenerate.")
+                voice_payload = overrides.get("voice")
+                tasks_to_schedule.append((chunk_id, text_value, voice_payload))
+        for chunk_id, text_value, voice_payload in tasks_to_schedule:
+            _schedule_chunk_regeneration(job_id, chunk_id, text_value, voice_payload)
+        return jsonify({"success": True, "queued_chunks": len(tasks_to_schedule)})
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Failed to queue full regeneration for job %s: %s", job_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to queue full regeneration"}), 500
+
+
+def _merge_review_job(job_id: str, job_entry: Dict[str, Any], manifest: Dict[str, Any]):
+    config_snapshot = copy.deepcopy(job_entry.get("config_snapshot") or load_config())
+    merge_options = job_entry.get("merge_options") or {}
+    output_format = merge_options.get("output_format") or config_snapshot.get("output_format") or "mp3"
+    crossfade_seconds = float(merge_options.get("crossfade_duration") or 0)
+    merger = AudioMerger(
+        crossfade_ms=int(max(0.0, crossfade_seconds) * 1000),
+        intro_silence_ms=int(max(0, merge_options.get("intro_silence_ms") or 0)),
+        inter_chunk_silence_ms=int(max(0, merge_options.get("inter_chunk_silence_ms") or 0)),
+        bitrate_kbps=int(merge_options.get("output_bitrate_kbps") or 0),
+    )
+    job_dir = _job_dir_from_entry(job_id, job_entry)
+
+    chapter_outputs = []
+    for chapter in manifest.get("chapters", []):
+        rel_chunk_files = chapter.get("chunk_files") or []
+        chunk_paths = [str(job_dir / rel_path) for rel_path in rel_chunk_files]
+        if not chunk_paths:
+            continue
+        output_filename = chapter.get("output_filename") or f"chapter_{chapter.get('index', 0):02d}.{output_format}"
+        chapter_dir = job_dir / (chapter.get("chapter_dir") or ".")
+        chapter_dir.mkdir(parents=True, exist_ok=True)
+        output_path = chapter_dir / output_filename
+        merger.merge_wav_files(
+            input_files=chunk_paths,
+            output_path=str(output_path),
+            format=output_format,
+            cleanup_chunks=False,
+        )
+        chapter_outputs.append({
+            "index": chapter.get("index"),
+            "title": chapter.get("title"),
+            "file_url": f"/static/audio/{job_id}/{Path(chapter.get('chapter_dir') or '.') / output_filename}",
+            "relative_path": str(Path(chapter.get("chapter_dir") or ".") / output_filename).replace("\\", "/"),
+        })
+
+    full_story_entry = None
+    all_full_story_chunks = manifest.get("all_full_story_chunks") or []
+    if all_full_story_chunks:
+        chunk_paths = [str(job_dir / rel_path) for rel_path in all_full_story_chunks]
+        full_story_name = f"full_story.{output_format}"
+        full_story_path = job_dir / full_story_name
+        merger.merge_wav_files(
+            input_files=chunk_paths,
+            output_path=str(full_story_path),
+            format=output_format,
+            cleanup_chunks=False,
+        )
+        full_story_entry = {
+            "title": "Full Story",
+            "file_url": f"/static/audio/{job_id}/{full_story_name}",
+            "relative_path": full_story_name,
+        }
+
+    metadata = {
+        "chapter_mode": job_entry.get("chapter_mode"),
+        "output_format": output_format,
+        "chapters": chapter_outputs,
+        "chapter_count": len(chapter_outputs),
+        "full_story": full_story_entry,
+    }
+    save_job_metadata(job_dir, metadata)
+
+    with queue_lock:
+        entry = jobs.get(job_id)
+        if entry:
+            entry["status"] = "completed"
+            entry["progress"] = 100
+            entry["eta_seconds"] = 0
+            entry["chapter_outputs"] = chapter_outputs
+            entry["completed_at"] = datetime.now().isoformat()
+            if full_story_entry:
+                entry["full_story"] = full_story_entry
+            entry["output_file"] = (full_story_entry or (chapter_outputs[0] if chapter_outputs else {})).get("file_url")
+
+
+@app.route('/api/jobs/<job_id>/review/finish', methods=['POST'])
+def finish_review_job(job_id: str):
+    """Finalize a review-mode job by merging audio and updating metadata."""
+    try:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if not job_entry:
+                return jsonify({"success": False, "error": "Job not found"}), 404
+            _ensure_review_ready(job_entry)
+            # Allow recompile for completed jobs with review_mode (chunk review from library)
+            if job_entry.get("status") not in ("waiting_review", "completed"):
+                return jsonify({"success": False, "error": "Job is not ready for recompile"}), 409
+            if _has_active_regen_tasks(job_entry):
+                return jsonify({"success": False, "error": "Wait for all chunk regenerations to finish"}), 409
+
+        manifest = _load_review_manifest(job_id, job_entry)
+        _merge_review_job(job_id, job_entry, manifest)
+        return jsonify({"success": True})
+    except FileNotFoundError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Failed to finalize review job %s: %s", job_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to finalize review job"}), 500
+
     voice_manager = VoiceManager()  # Reload manifest with updated manifest file
     missing = voice_manager.missing_samples()
 
@@ -810,15 +2109,14 @@ def preview_audio():
         text = "This is a quick Kokoro preview."
 
     config = load_config()
-    mode = config.get('mode', 'local')
+    engine_name = _normalize_engine_name(config.get("tts_engine"))
     sample_rate = int(config.get('sample_rate', DEFAULT_SAMPLE_RATE))
     audio_bytes = None
 
     try:
-        if mode == 'local':
-            if not KOKORO_AVAILABLE:
-                raise RuntimeError("Local Kokoro is unavailable. Switch to Replicate mode for previews.")
-            engine = get_tts_engine()
+        engine = get_tts_engine(engine_name, config=config)
+        # Check if engine has generate_audio method that returns numpy array
+        if hasattr(engine, 'generate_audio'):
             audio = engine.generate_audio(
                 text=text,
                 voice=voice,
@@ -827,31 +2125,21 @@ def preview_audio():
                 sample_rate=sample_rate,
                 fx_settings=fx_settings,
             )
-            if audio.size == 0:
+            if hasattr(audio, 'size') and audio.size == 0:
                 raise RuntimeError("No audio produced for the requested preview.")
-            buffer = io.BytesIO()
-            sf.write(buffer, audio, sample_rate, format='wav')
-            audio_bytes = buffer.getvalue()
-        else:
-            api_key = (config.get('replicate_api_key') or '').strip()
-            if not api_key:
-                raise RuntimeError("Replicate API key is required for preview in replicate mode.")
-            api = ReplicateAPI(api_key)
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-                tmp_path = tmp.name
-            try:
-                api.generate_audio(
-                    text=text,
-                    voice=voice,
-                    speed=speed,
-                    output_path=tmp_path,
-                    fx_settings=fx_settings,
-                )
-                with open(tmp_path, 'rb') as fh:
+            if hasattr(audio, 'size'):
+                # Numpy array - write to buffer
+                buffer = io.BytesIO()
+                sf.write(buffer, audio, sample_rate, format='wav')
+                audio_bytes = buffer.getvalue()
+            elif isinstance(audio, str) and os.path.exists(audio):
+                # File path returned
+                with open(audio, 'rb') as fh:
                     audio_bytes = fh.read()
-            finally:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+            elif isinstance(audio, bytes):
+                audio_bytes = audio
+            else:
+                raise RuntimeError("Unexpected audio format from engine.")
     except Exception as exc:
         logger.error("Preview generation failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": str(exc)}), 400
@@ -1000,7 +2288,18 @@ def analyze_text():
                 }), 400
 
             config = load_config()
-            processor = TextProcessor(chunk_size=config['chunk_size'])
+            selected_engine = config.get("tts_engine")
+            requested_engine = (data.get('tts_engine') or '').strip()
+            if requested_engine:
+                normalized = _normalize_engine_name(requested_engine)
+                if normalized not in AVAILABLE_ENGINES:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Unsupported TTS engine: {requested_engine}"
+                    }), 400
+                selected_engine = normalized
+
+            processor = _create_text_processor_for_engine(selected_engine, config["chunk_size"])
             stats = processor.get_statistics(text)
             chapter_matches = list(CHAPTER_HEADING_PATTERN.finditer(text))
             if chapter_matches:
@@ -1037,6 +2336,7 @@ def process_text_with_gemini():
         data = request.json or {}
         text = (data.get('text') or '').strip()
         prefer_chapters = bool(data.get('prefer_chapters', True))
+        prompt_override = (data.get('prompt_override') or '').strip()
 
         if not text:
             return jsonify({
@@ -1053,7 +2353,7 @@ def process_text_with_gemini():
             }), 400
 
         model_name = config.get('gemini_model') or DEFAULT_GEMINI_MODEL
-        prompt_prefix = (config.get('gemini_prompt') or '').strip()
+        prompt_prefix = prompt_override or (config.get('gemini_prompt') or '').strip()
 
         sections = build_gemini_sections(text, prefer_chapters, config)
         if not sections:
@@ -1128,6 +2428,7 @@ def process_full_text_with_gemini():
     try:
         data = request.json or {}
         text = (data.get('text') or '').strip()
+        prompt_override = (data.get('prompt_override') or '').strip()
 
         if not text:
             return jsonify({
@@ -1144,7 +2445,7 @@ def process_full_text_with_gemini():
             }), 400
 
         model_name = config.get('gemini_model') or DEFAULT_GEMINI_MODEL
-        prompt_prefix = (config.get('gemini_prompt') or '').strip()
+        prompt_prefix = prompt_override or (config.get('gemini_prompt') or '').strip()
 
         prompt_parts = []
         if prompt_prefix:
@@ -1219,6 +2520,7 @@ def process_gemini_section():
     try:
         data = request.json or {}
         content = (data.get('content') or '').strip()
+        prompt_override = (data.get('prompt_override') or '').strip()
 
         if not content:
             return jsonify({
@@ -1235,7 +2537,7 @@ def process_gemini_section():
             }), 400
 
         model_name = config.get('gemini_model') or DEFAULT_GEMINI_MODEL
-        prompt_prefix = (config.get('gemini_prompt') or '').strip()
+        prompt_prefix = prompt_override or (config.get('gemini_prompt') or '').strip()
 
         raw_known = data.get('known_speakers') or []
         known_speakers = []
@@ -1281,20 +2583,61 @@ def generate_audio():
     try:
         # Ensure worker thread is running
         start_worker_thread()
-        data = request.json
+        data = request.json or {}
         text = data.get('text', '')
         voice_assignments = data.get('voice_assignments', {})
         split_by_chapter = bool(data.get('split_by_chapter', False))
         generate_full_story = bool(data.get('generate_full_story', False)) and split_by_chapter
+        requested_format = (data.get('output_format') or '').strip().lower()
+        requested_bitrate = data.get('output_bitrate_kbps')
+        requested_engine = (data.get('tts_engine') or '').strip().lower()
+        engine_options = data.get('engine_options') if isinstance(data.get('engine_options'), dict) else None
+        review_mode = bool(data.get('review_mode', False))
 
         if not text:
             return jsonify({
                 "success": False,
                 "error": "No text provided"
             }), 400
-        
+
+        allowed_formats = {"mp3", "wav", "ogg"}
+        if requested_format and requested_format not in allowed_formats:
+            return jsonify({
+                "success": False,
+                "error": f"Unsupported output format: {requested_format}"
+            }), 400
+
+        if requested_bitrate is not None:
+            try:
+                requested_bitrate = int(requested_bitrate)
+            except (TypeError, ValueError):
+                return jsonify({
+                    "success": False,
+                    "error": "Output bitrate must be an integer"
+                }), 400
+            if requested_bitrate < 32 or requested_bitrate > 512:
+                return jsonify({
+                    "success": False,
+                    "error": "Output bitrate must be between 32 and 512 kbps"
+                }), 400
+
         # Load config
         config = load_config()
+        if requested_engine:
+            normalized_engine = _normalize_engine_name(requested_engine)
+            if normalized_engine not in AVAILABLE_ENGINES:
+                return jsonify({
+                    "success": False,
+                    "error": f"Unsupported TTS engine: {requested_engine}"
+                }), 400
+            config['tts_engine'] = normalized_engine
+
+        active_engine = _normalize_engine_name(config.get('tts_engine'))
+        _apply_engine_option_overrides(config, active_engine, engine_options)
+        if requested_format:
+            config['output_format'] = requested_format
+        if requested_bitrate:
+            config['output_bitrate_kbps'] = requested_bitrate
         
         # Create job
         job_id = str(uuid.uuid4())
@@ -1302,21 +2645,36 @@ def generate_audio():
             text,
             split_by_chapter,
             int(config.get('chunk_size', 500)),
-            include_full_story=generate_full_story
+            include_full_story=generate_full_story,
+            engine_name=active_engine,
         )
         
+        merge_options = {
+            "output_format": config.get('output_format'),
+            "crossfade_duration": float(config.get('crossfade_duration') or 0),
+            "intro_silence_ms": int(config.get('intro_silence_ms', 0) or 0),
+            "inter_chunk_silence_ms": int(config.get('inter_chunk_silence_ms', 0) or 0),
+            "output_bitrate_kbps": int(config.get('output_bitrate_kbps') or 0),
+        }
+
+        job_dir = (OUTPUT_DIR / job_id).as_posix()
+
         with queue_lock:
             jobs[job_id] = {
                 "status": "queued",
-                "progress": 0,
+                "text_preview": text[:200],
                 "created_at": datetime.now().isoformat(),
-                "text_preview": text[:100] + "..." if len(text) > 100 else text,
+                "review_mode": review_mode,
                 "chapter_mode": split_by_chapter,
-                "total_chunks": estimated_chunks,
-                "processed_chunks": 0,
-                "eta_seconds": None,
-                "chapter_count": None,
-                "full_story_requested": generate_full_story
+                "full_story_requested": generate_full_story,
+                "job_dir": job_dir,
+                "merge_options": merge_options,
+                "chunks": [],
+                "voice_assignments": voice_assignments,
+                "config_snapshot": copy.deepcopy(config),
+                "source_text": text,
+                "regen_tasks": {},
+                "engine": config.get("tts_engine"),
             }
         
         # Create job data
@@ -1326,8 +2684,10 @@ def generate_audio():
             "voice_assignments": voice_assignments,
             "config": config,
             "split_by_chapter": split_by_chapter,
+            "generate_full_story": generate_full_story,
             "total_chunks": estimated_chunks,
-            "generate_full_story": generate_full_story
+            "review_mode": review_mode,
+            "merge_options": merge_options,
         }
 
         # Add to queue
@@ -1516,6 +2876,18 @@ def _build_library_listing():
 
             if chapters_data:
                 chapters_data.sort(key=lambda c: c.get("index") or 0)
+                chunks_meta_path = job_dir / "chunks_metadata.json"
+                manifest_path = job_dir / "review_manifest.json"
+                has_chunks = chunks_meta_path.exists() or manifest_path.exists()
+                # Get engine from chunks_metadata if available
+                engine = None
+                if chunks_meta_path.exists():
+                    try:
+                        with chunks_meta_path.open("r", encoding="utf-8") as f:
+                            chunks_meta = json.load(f)
+                            engine = chunks_meta.get("engine")
+                    except Exception:
+                        pass
                 library_items.append({
                     "job_id": job_id,
                     "output_file": chapters_data[0]["output_file"],
@@ -1525,7 +2897,9 @@ def _build_library_listing():
                     "format": metadata.get("output_format", chapters_data[0]["format"]),
                     "chapter_mode": metadata.get("chapter_mode", False),
                     "chapters": chapters_data,
-                    "full_story": full_story_entry
+                    "full_story": full_story_entry,
+                    "has_chunks": has_chunks,
+                    "engine": engine,
                 })
             continue
 
@@ -1534,6 +2908,16 @@ def _build_library_listing():
             output_file = output_files[0]
             stat = output_file.stat()
             created_time = datetime.fromtimestamp(stat.st_ctime)
+            # Get engine from chunks_metadata if available
+            engine = None
+            chunks_meta_path = job_dir / "chunks_metadata.json"
+            if chunks_meta_path.exists():
+                try:
+                    with chunks_meta_path.open("r", encoding="utf-8") as f:
+                        chunks_meta = json.load(f)
+                        engine = chunks_meta.get("engine")
+                except Exception:
+                    pass
             library_items.append({
                 "job_id": job_id,
                 "output_file": f"/static/audio/{job_id}/{output_file.name}",
@@ -1549,7 +2933,8 @@ def _build_library_listing():
                     "relative_path": output_file.name,
                     "file_size": stat.st_size,
                     "format": output_file.suffix.lstrip('.')
-                }]
+                }],
+                "engine": engine,
             })
 
     library_items.sort(key=lambda x: x['created_at'], reverse=True)
@@ -1586,6 +2971,150 @@ def get_library():
             "success": False,
             "error": str(e)
         }), 500
+
+
+@app.route('/api/library/<job_id>/restore-review', methods=['POST'])
+def restore_library_item_to_review(job_id):
+    """Restore a completed library item back to review mode for chunk editing."""
+    try:
+        job_dir = OUTPUT_DIR / job_id
+        if not job_dir.exists():
+            return jsonify({"success": False, "error": "Item not found"}), 404
+
+        manifest_path = job_dir / "review_manifest.json"
+        chunks_meta_path = job_dir / "chunks_metadata.json"
+
+        if not manifest_path.exists() and not chunks_meta_path.exists():
+            return jsonify({"success": False, "error": "No chunk data available for this item"}), 400
+
+        manifest = {}
+        if manifest_path.exists():
+            with manifest_path.open("r", encoding="utf-8") as handle:
+                manifest = json.load(handle)
+
+        chunks_meta = {}
+        if chunks_meta_path.exists():
+            with chunks_meta_path.open("r", encoding="utf-8") as handle:
+                chunks_meta = json.load(handle)
+
+        config_snapshot = load_config()
+        engine_name = chunks_meta.get("engine") or config_snapshot.get("tts_engine", "kokoro")
+        # Ensure config_snapshot uses the original job's engine, not the current config
+        config_snapshot["tts_engine"] = engine_name
+        logger.info(f"Restoring job {job_id} with engine: {engine_name}")
+
+        # Prefer chunks from chunks_metadata.json if available (has text/voice data)
+        chunks = chunks_meta.get("chunks") or []
+
+        # If no chunks in metadata, build from manifest
+        if not chunks and manifest:
+            order_index = 0
+            for chapter in manifest.get("chapters", []):
+                chapter_index = chapter.get("index", 0)
+                chunk_files = chapter.get("chunk_files") or []
+                for chunk_idx, rel_path in enumerate(chunk_files):
+                    chunk_path = job_dir / rel_path
+                    if not chunk_path.exists():
+                        continue
+                    chunk_id = f"{chapter_index}-{chunk_idx}-{order_index}"
+                    chunks.append({
+                        "id": chunk_id,
+                        "order_index": order_index,
+                        "chapter_index": chapter_index,
+                        "chunk_index": chunk_idx,
+                        "speaker": "default",
+                        "text": "",
+                        "relative_file": rel_path,
+                        "duration_seconds": None,
+                    })
+                    order_index += 1
+
+        # Verify chunk files exist on disk
+        valid_chunks = []
+        for chunk in chunks:
+            rel_file = chunk.get("relative_file")
+            if rel_file and (job_dir / rel_file).exists():
+                valid_chunks.append(chunk)
+
+        if not valid_chunks:
+            return jsonify({"success": False, "error": "No chunk files found on disk"}), 400
+
+        with queue_lock:
+            jobs[job_id] = {
+                "job_id": job_id,
+                "status": "completed",  # Keep as completed - review happens in library
+                "progress": 100,
+                "eta_seconds": 0,
+                "review_mode": True,
+                "review_manifest": manifest_path.name if manifest_path.exists() else None,
+                "chapter_mode": manifest.get("chapter_mode", False),
+                "full_story_requested": manifest.get("full_story_requested", False),
+                "job_dir": str(job_dir),
+                "config_snapshot": config_snapshot,
+                "chunks": valid_chunks,
+                "regen_tasks": {},
+                "engine": engine_name,
+                "restored_at": datetime.now().isoformat(),
+            }
+
+        invalidate_library_cache()
+        return jsonify({"success": True, "job_id": job_id, "chunk_count": len(valid_chunks)})
+
+    except Exception as exc:
+        logger.error("Failed to restore library item %s to review: %s", job_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to restore item to review mode"}), 500
+
+
+@app.route('/api/library/<job_id>/chunks', methods=['GET'])
+def get_library_item_chunks(job_id):
+    """Get chunk metadata for a library item."""
+    try:
+        job_dir = OUTPUT_DIR / job_id
+        if not job_dir.exists():
+            return jsonify({"success": False, "error": "Item not found"}), 404
+
+        chunks_meta_path = job_dir / "chunks_metadata.json"
+        if not chunks_meta_path.exists():
+            return jsonify({"success": False, "error": "No chunk data available for this item"}), 400
+
+        with chunks_meta_path.open("r", encoding="utf-8") as handle:
+            chunks_meta = json.load(handle)
+
+        chunks = chunks_meta.get("chunks") or []
+        for chunk in chunks:
+            rel_file = chunk.get("relative_file")
+            if rel_file:
+                chunk["file_url"] = f"/static/audio/{job_id}/{rel_file}"
+
+        # Load chapter information from review_manifest if available
+        chapters = []
+        manifest_path = job_dir / "review_manifest.json"
+        if manifest_path.exists():
+            with manifest_path.open("r", encoding="utf-8") as handle:
+                manifest = json.load(handle)
+                chapter_mode = manifest.get("chapter_mode", False)
+                if chapter_mode:
+                    for ch in manifest.get("chapters", []):
+                        chapters.append({
+                            "index": ch.get("index"),
+                            "title": ch.get("title"),
+                            "output_filename": ch.get("output_filename"),
+                        })
+
+        return jsonify({
+            "success": True,
+            "job_id": job_id,
+            "engine": chunks_meta.get("engine", "kokoro"),
+            "created_at": chunks_meta.get("created_at"),
+            "updated_at": chunks_meta.get("updated_at"),
+            "chunks": chunks,
+            "chapters": chapters,
+            "has_chapters": len(chapters) > 1,
+        })
+
+    except Exception as exc:
+        logger.error("Failed to get chunks for library item %s: %s", job_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to load chunk data"}), 500
 
 
 @app.route('/api/library/<job_id>', methods=['DELETE'])
@@ -1701,7 +3230,9 @@ def get_queue():
                         "eta_seconds": job_info.get("eta_seconds"),
                         "chapter_mode": job_info.get("chapter_mode", False),
                         "chapter_count": job_info.get("chapter_count"),
-                        "full_story_requested": job_info.get("full_story_requested", False)
+                        "full_story_requested": job_info.get("full_story_requested", False),
+                        "review_mode": job_info.get("review_mode", False),
+                        "review_has_active_regen": job_info.get("review_mode", False) and _has_active_regen_tasks(job_info),
                     })
                 
                 all_jobs.sort(key=lambda x: x['created_at'], reverse=True)
@@ -1728,12 +3259,13 @@ def health_check():
     
     return jsonify({
         "success": True,
-        "mode": config['mode'],
+        "tts_engine": config.get('tts_engine', 'kokoro'),
         "kokoro_available": KOKORO_AVAILABLE,
         "cuda_available": False if not KOKORO_AVAILABLE else __import__('torch').cuda.is_available()
     })
 
 
 if __name__ == '__main__':
-    logger.info("Starting Kokoro-Story server")
+    logger.info("Starting TTS-Story server")
+    _cleanup_orphaned_chatterbox_voices()
     app.run(host='0.0.0.0', port=5000, debug=True)

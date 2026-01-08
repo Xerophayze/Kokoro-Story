@@ -2,16 +2,30 @@ flask>=3.0.0
 flask-cors>=4.0.0
 kokoro>=0.9.4
 soundfile>=0.12.1
-numpy>=1.24.0
+numpy>=1.24.0,<1.26.0; python_version < "3.12"
 pydub>=0.25.1
-librosa>=0.10.1
+librosa==0.11.0
 resampy>=0.4.2
 pyrubberband>=0.4.0
 replicate>=0.25.0
 requests>=2.31.0
 python-dotenv>=1.0.0
 google-generativeai>=0.7.0
-# Note: torch, torchvision, and torchaudio are installed by setup.bat with proper CUDA detection
+
+# Chatterbox Turbo local runtime dependencies
+s3tokenizer
+transformers==4.46.3
+diffusers==0.29.0
+resemble-perth==1.0.1
+conformer==0.3.2
+safetensors==0.5.3
+spacy-pkuseg
+pykakasi==2.3.0
+gradio==5.44.1
+pyloudnorm>=0.1.0
+omegaconf>=2.3.0
+
+# Note: torch, torchvision, torchaudio, and chatterbox-tts are installed by setup.bat
 
 # Extra language-specific dependencies
 pyopenjtalk

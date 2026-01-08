@@ -2,7 +2,7 @@
 set -e
 
 echo "========================================"
-echo "Kokoro-Story Setup (Linux/macOS)"
+echo "TTS-Story Setup (Linux/macOS)"
 echo "========================================"
 echo
 

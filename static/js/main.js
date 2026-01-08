@@ -1,3 +1,467 @@
+const MIN_CHATTERBOX_PROMPT_SECONDS = 5;
+
+function preloadGenerationControls() {
+    fetch('/api/settings')
+        .then(resp => resp.json())
+        .then(data => {
+            if (!data?.success || !data.settings) return;
+            const settings = data.settings;
+            runtimeSettings = settings;
+            setAvailableGeminiPresets(settings.gemini_prompt_presets || []);
+            const formatSelect = document.getElementById('job-output-format');
+            const bitrateSelect = document.getElementById('job-output-bitrate');
+            if (formatSelect && settings.output_format) {
+                formatSelect.value = settings.output_format;
+                handleOutputFormatChange(formatSelect.value);
+                refreshGlobalChatterboxPreviewButton();
+}
+            if (bitrateSelect && settings.output_bitrate_kbps) {
+                bitrateSelect.value = String(settings.output_bitrate_kbps);
+            }
+            applyEngineDefaults(settings);
+        })
+        .catch(err => {
+            console.error('Failed to preload output controls', err);
+        });
+}
+
+function handleChatterboxVoicesUpdated(event) {
+    const voices = Array.isArray(event?.detail?.voices) ? event.detail.voices : [];
+    availableChatterboxVoices = voices;
+    populateReferenceSelects();
+    refreshGlobalChatterboxPreviewButton();
+}
+
+function handleOutputFormatChange(value) {
+    const bitrateSelect = document.getElementById('job-output-bitrate');
+    if (!bitrateSelect) return;
+    const isMp3 = value === 'mp3';
+    bitrateSelect.disabled = !isMp3;
+    bitrateSelect.parentElement?.classList.toggle('disabled', !isMp3);
+}
+
+function applyEngineDefaults(settings) {
+    const engineSelect = document.getElementById('job-tts-engine');
+    const defaultEngine = (settings.tts_engine || 'kokoro').toLowerCase();
+    if (engineSelect) {
+        engineSelect.value = defaultEngine;
+    }
+    hydrateTurboLocalJobFields(settings);
+    hydrateTurboReplicateJobFields(settings);
+    updateEngineUI(defaultEngine);
+}
+
+function updateJobEngineOptionVisibility(engineName) {
+    const jobTurboLocal = document.getElementById('job-chatterbox-turbo-local-options');
+    const jobTurboReplicate = document.getElementById('job-chatterbox-turbo-replicate-options');
+    if (jobTurboLocal) {
+        jobTurboLocal.style.display = engineName === 'chatterbox_turbo_local' ? 'grid' : 'none';
+    }
+    if (jobTurboReplicate) {
+        jobTurboReplicate.style.display = engineName === 'chatterbox_turbo_replicate' ? 'grid' : 'none';
+    }
+}
+
+function updateEngineUI(engineName) {
+    updateJobEngineOptionVisibility(engineName);
+    const kokoroCard = document.getElementById('kokoro-default-voice-card');
+    const turboCard = document.getElementById('chatterbox-turbo-voice-card');
+    const isTurbo = engineName === 'chatterbox_turbo_local' || engineName === 'chatterbox_turbo_replicate';
+    if (kokoroCard) {
+        kokoroCard.style.display = isTurbo ? 'none' : 'block';
+    }
+    if (turboCard) {
+        turboCard.style.display = isTurbo ? 'block' : 'none';
+    }
+    updateAssignmentModes(engineName);
+    if (isTurbo) {
+        fetchReferencePrompts();
+    }
+}
+
+function hydrateTurboLocalJobFields(settings) {
+    const promptInput = document.getElementById('job-turbo-local-prompt');
+    const tempInput = document.getElementById('job-turbo-local-temperature');
+    const topPInput = document.getElementById('job-turbo-local-top-p');
+    const topKInput = document.getElementById('job-turbo-local-top-k');
+    const repPenaltyInput = document.getElementById('job-turbo-local-rep-penalty');
+    const cfgInput = document.getElementById('job-turbo-local-cfg-weight');
+    const exaggerationInput = document.getElementById('job-turbo-local-exaggeration');
+    const normCheck = document.getElementById('job-turbo-local-norm');
+    const promptNormCheck = document.getElementById('job-turbo-local-prompt-norm');
+
+    if (promptInput) {
+        promptInput.placeholder = settings.chatterbox_turbo_local_default_prompt || promptInput.placeholder;
+    }
+    if (tempInput) {
+        tempInput.value = settings.chatterbox_turbo_local_temperature ?? 0.8;
+    }
+    if (topPInput) {
+        topPInput.value = settings.chatterbox_turbo_local_top_p ?? 0.95;
+    }
+    if (topKInput) {
+        topKInput.value = settings.chatterbox_turbo_local_top_k ?? 1000;
+    }
+    if (repPenaltyInput) {
+        repPenaltyInput.value = settings.chatterbox_turbo_local_repetition_penalty ?? 1.2;
+    }
+    if (cfgInput) {
+        cfgInput.value = settings.chatterbox_turbo_local_cfg_weight ?? 0.0;
+    }
+    if (exaggerationInput) {
+        exaggerationInput.value = settings.chatterbox_turbo_local_exaggeration ?? 0.0;
+    }
+    if (normCheck) {
+        normCheck.checked = settings.chatterbox_turbo_local_norm_loudness !== false;
+    }
+    if (promptNormCheck) {
+        promptNormCheck.checked = settings.chatterbox_turbo_local_prompt_norm_loudness !== false;
+    }
+}
+
+function hydrateTurboReplicateJobFields(settings) {
+    const modelInput = document.getElementById('job-turbo-replicate-model');
+    const voiceInput = document.getElementById('job-turbo-replicate-voice');
+    const tempInput = document.getElementById('job-turbo-replicate-temperature');
+    const topPInput = document.getElementById('job-turbo-replicate-top-p');
+    const topKInput = document.getElementById('job-turbo-replicate-top-k');
+    const repPenaltyInput = document.getElementById('job-turbo-replicate-rep-penalty');
+    const seedInput = document.getElementById('job-turbo-replicate-seed');
+
+    if (modelInput) {
+        modelInput.placeholder = settings.chatterbox_turbo_replicate_model || modelInput.placeholder;
+    }
+    if (voiceInput) {
+        voiceInput.placeholder = settings.chatterbox_turbo_replicate_voice || voiceInput.placeholder;
+    }
+    if (tempInput) {
+        tempInput.value = settings.chatterbox_turbo_replicate_temperature ?? 0.8;
+    }
+    if (topPInput) {
+        topPInput.value = settings.chatterbox_turbo_replicate_top_p ?? 0.95;
+    }
+    if (topKInput) {
+        topKInput.value = settings.chatterbox_turbo_replicate_top_k ?? 1000;
+    }
+    if (repPenaltyInput) {
+        repPenaltyInput.value = settings.chatterbox_turbo_replicate_repetition_penalty ?? 1.2;
+    }
+    if (seedInput) {
+        const seed = settings.chatterbox_turbo_replicate_seed;
+        seedInput.value = seed === null || seed === undefined ? '' : seed;
+    }
+}
+
+function isTurboEngine(engineName) {
+    const value = (engineName || '').toLowerCase();
+    return value === 'chatterbox_turbo_local' || value === 'chatterbox_turbo_replicate';
+}
+
+function updateEngineUI(engineName) {
+    updateJobEngineOptionVisibility(engineName);
+    const kokoroCard = document.getElementById('kokoro-default-voice-card');
+    const turboCard = document.getElementById('chatterbox-turbo-voice-card');
+    const isTurbo = isTurboEngine(engineName);
+    if (kokoroCard) {
+        kokoroCard.style.display = isTurbo ? 'none' : 'block';
+    }
+    if (turboCard) {
+        turboCard.style.display = isTurbo ? 'block' : 'none';
+    }
+    updateAssignmentModes(engineName);
+    if (isTurbo) {
+        fetchReferencePrompts();
+    }
+}
+
+function updateAssignmentModes(engineName) {
+    const isTurbo = isTurboEngine(engineName);
+    document.querySelectorAll('#inline-voice-assignment-list .voice-assignment-row').forEach(row => {
+        const kokoroControl = row.querySelector('[data-role="kokoro-control"]');
+        const turboControl = row.querySelector('[data-role="turbo-control"]');
+        const kokoroPanel = row.querySelector('[data-role="kokoro-panel"]');
+        if (kokoroControl) {
+            kokoroControl.style.display = isTurbo ? 'none' : 'flex';
+        }
+        if (turboControl) {
+            turboControl.style.display = isTurbo ? 'flex' : 'none';
+        }
+        if (kokoroPanel) {
+            kokoroPanel.style.display = isTurbo ? 'none' : 'flex';
+        }
+    });
+}
+
+function populateReferenceDropdown(selectEl, placeholderText = 'Use preset voice') {
+    if (!selectEl) return;
+    const previousValue = selectEl.value;
+    selectEl.innerHTML = '';
+    if (placeholderText) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = placeholderText;
+        selectEl.appendChild(option);
+    }
+    // Sort voices alphabetically by name
+    const sortedVoices = [...availableChatterboxVoices].sort((a, b) =>
+        (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase())
+    );
+    sortedVoices.forEach(entry => {
+        const option = document.createElement('option');
+        const promptPath = (entry?.prompt_path || entry?.file_name || '').trim();
+        option.value = promptPath;
+        const durationLabel = entry?.duration_seconds ? ` · ${entry.duration_seconds.toFixed(2)}s` : '';
+        option.textContent = `${entry?.name || promptPath}${durationLabel}`;
+        option.dataset.durationSeconds = entry?.duration_seconds ?? '';
+        selectEl.appendChild(option);
+    });
+    if (previousValue) {
+        selectEl.value = previousValue;
+    }
+}
+
+function populatePresetSelect(selectEl, selectedValue, placeholderText = 'Select a saved voice') {
+    if (!selectEl) return;
+    const previousValue = selectedValue || selectEl.value;
+    selectEl.innerHTML = '';
+    if (placeholderText) {
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = placeholderText;
+        selectEl.appendChild(placeholder);
+    }
+    // Sort voices alphabetically by name
+    const sortedVoices = [...availableChatterboxVoices].sort((a, b) =>
+        (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase())
+    );
+    sortedVoices.forEach(entry => {
+        const pathValue = (entry?.prompt_path || entry?.file_name || '').trim();
+        if (!pathValue) {
+            return;
+        }
+        const option = document.createElement('option');
+        option.value = pathValue;
+        option.textContent = entry?.name || pathValue;
+        if (entry.missing_file) {
+            option.disabled = true;
+            option.textContent = `${option.textContent} (missing file)`;
+        }
+        selectEl.appendChild(option);
+    });
+    if (previousValue) {
+        selectEl.value = previousValue;
+    }
+}
+
+function populateReferenceSelects() {
+    populateReferenceDropdown(
+        document.getElementById('chatterbox-reference-select'),
+        'Select saved Chatterbox voice'
+    );
+    document.querySelectorAll('#inline-voice-assignment-list [data-role="turbo-control"] .reference-select')
+        .forEach(select => {
+            populateReferenceDropdown(select, 'Inherit from global selection');
+    });
+}
+
+async function handleReferenceUpload(event) {
+    const files = event.target.files;
+    if (!files || !files.length) {
+        return;
+    }
+    const file = files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const response = await fetch('/api/voice-prompts/upload', {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Upload failed');
+        }
+        showNotification('Reference prompt uploaded.', 'success');
+        await fetchReferencePrompts();
+    } catch (error) {
+        console.error('Prompt upload failed', error);
+        showNotification(error.message || 'Failed to upload prompt', 'error');
+    } finally {
+        event.target.value = '';
+    }
+}
+
+function handleReferenceSelectChange(event) {
+    const selected = event.target.value;
+    const promptInput = document.getElementById('job-turbo-local-prompt');
+    if (promptInput !== null) {
+        promptInput.value = selected;
+    }
+    refreshGlobalChatterboxPreviewButton();
+}
+
+async function fetchReferencePrompts() {
+    try {
+        const response = await fetch('/api/voice-prompts');
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Unable to load reference prompts');
+        }
+        window.availableReferencePrompts = data.prompts || [];
+    } catch (error) {
+        console.error('Failed to fetch reference prompts', error);
+        window.availableReferencePrompts = [];
+    } finally {
+        populateReferenceSelects();
+        refreshGlobalChatterboxPreviewButton();
+    }
+}
+
+function findChatterboxVoiceByPath(pathValue) {
+    if (!pathValue) return null;
+    const normalized = pathValue.trim();
+    if (!normalized) return null;
+    return availableChatterboxVoices.find(entry => {
+        const promptPath = (entry?.prompt_path || '').trim();
+        const fileName = (entry?.file_name || '').trim();
+        return promptPath === normalized || fileName === normalized;
+    }) || null;
+}
+
+function refreshGlobalChatterboxPreviewButton() {
+    const select = document.getElementById('chatterbox-reference-select');
+    const button = document.getElementById('global-chatterbox-preview-btn');
+    if (!button) return;
+    const hasSelection = !!(select?.value?.trim());
+    if (!hasSelection) {
+        button.disabled = true;
+        button.classList.remove('is-playing', 'is-loading');
+        button.textContent = button.dataset.labelPlay || 'Play';
+    } else {
+        button.disabled = false;
+    }
+}
+window.refreshGlobalChatterboxPreviewButton = refreshGlobalChatterboxPreviewButton;
+
+function getSelectedJobEngine() {
+    const select = document.getElementById('job-tts-engine');
+    if (!select) return null;
+    const value = (select.value || '').trim().toLowerCase();
+    return value || null;
+}
+
+function getGlobalReferenceSelection() {
+    const select = document.getElementById('chatterbox-reference-select');
+    if (select && select.value) {
+        return select.value.trim();
+    }
+    const promptInput = document.getElementById('job-turbo-local-prompt');
+    return (promptInput?.value || '').trim();
+}
+
+function collectEngineOverrides(engineName) {
+    if (!engineName) return null;
+    switch (engineName) {
+        case 'chatterbox':
+            return collectChatterboxOverrides();
+        case 'chatterbox_turbo_local':
+            return collectTurboLocalOverrides();
+        case 'chatterbox_turbo_replicate':
+            return collectTurboReplicateOverrides();
+        default:
+            return null;
+    }
+}
+
+function collectTurboLocalOverrides() {
+    const options = {};
+    const prompt = document.getElementById('job-turbo-local-prompt')?.value.trim();
+    if (prompt) {
+        options.default_prompt = prompt;
+    }
+    const temperature = readNumericInput('job-turbo-local-temperature');
+    if (temperature !== null) {
+        options.temperature = temperature;
+    }
+    const topP = readNumericInput('job-turbo-local-top-p');
+    if (topP !== null) {
+        options.top_p = topP;
+    }
+    const topK = readNumericInput('job-turbo-local-top-k', true);
+    if (topK !== null) {
+        options.top_k = topK;
+    }
+    const repPenalty = readNumericInput('job-turbo-local-rep-penalty');
+    if (repPenalty !== null) {
+        options.repetition_penalty = repPenalty;
+    }
+    const cfgWeight = readNumericInput('job-turbo-local-cfg-weight');
+    if (cfgWeight !== null) {
+        options.cfg_weight = cfgWeight;
+    }
+    const exaggeration = readNumericInput('job-turbo-local-exaggeration');
+    if (exaggeration !== null) {
+        options.exaggeration = exaggeration;
+    }
+    const normCheckbox = document.getElementById('job-turbo-local-norm');
+    if (normCheckbox) {
+        options.norm_loudness = normCheckbox.checked;
+    }
+    const promptNormCheckbox = document.getElementById('job-turbo-local-prompt-norm');
+    if (promptNormCheckbox) {
+        options.prompt_norm_loudness = promptNormCheckbox.checked;
+    }
+    return Object.keys(options).length ? options : null;
+}
+
+function collectTurboReplicateOverrides() {
+    const options = {};
+    const model = document.getElementById('job-turbo-replicate-model')?.value.trim();
+    if (model) {
+        options.model = model;
+    }
+    const voice = document.getElementById('job-turbo-replicate-voice')?.value.trim();
+    if (voice) {
+        options.voice = voice;
+    }
+    const temperature = readNumericInput('job-turbo-replicate-temperature');
+    if (temperature !== null) {
+        options.temperature = temperature;
+    }
+    const topP = readNumericInput('job-turbo-replicate-top-p');
+    if (topP !== null) {
+        options.top_p = topP;
+    }
+    const topK = readNumericInput('job-turbo-replicate-top-k', true);
+    if (topK !== null) {
+        options.top_k = topK;
+    }
+    const repPenalty = readNumericInput('job-turbo-replicate-rep-penalty');
+    if (repPenalty !== null) {
+        options.repetition_penalty = repPenalty;
+    }
+    const seedValue = document.getElementById('job-turbo-replicate-seed')?.value.trim();
+    if (seedValue) {
+        const parsedSeed = parseInt(seedValue, 10);
+        if (Number.isFinite(parsedSeed) && parsedSeed >= 0) {
+            options.seed = parsedSeed;
+        }
+    }
+    return Object.keys(options).length ? options : null;
+}
+
+function readNumericInput(elementId, integerOnly = false) {
+    const raw = document.getElementById(elementId)?.value;
+    if (raw === undefined || raw === null || raw === '') {
+        return null;
+    }
+    const parsed = integerOnly ? parseInt(raw, 10) : parseFloat(raw);
+    if (!Number.isFinite(parsed)) {
+        return null;
+    }
+    return parsed;
+}
+
 // Main application logic
 
 let currentJobId = null;
@@ -10,16 +474,70 @@ const ANALYZE_DEBOUNCE_MS = 800;
 const VOICES_EVENT_NAME = window.VOICES_UPDATED_EVENT || 'voices:updated';
 const DEFAULT_FX_STATE = Object.freeze({
     pitch: 0,
-    tempo: 1,
-    tone: 'neutral',
+    speed: 1,
     sampleText: ''
 });
 const voiceFxState = {};
 let currentFxPreviewAudio = null;
 let queuePollInFlight = false;
+let runtimeSettings = null;
+let availableChatterboxVoices = [];
+let availableGeminiPromptPresets = [];
 
 window.customVoiceMap = window.customVoiceMap || {};
 window.addEventListener(VOICES_EVENT_NAME, handleVoicesUpdated);
+const CHATTERBOX_VOICES_EVENT_NAME = window.CHATTERBOX_VOICES_EVENT || 'chatterboxVoices:updated';
+window.CHATTERBOX_VOICES_EVENT = CHATTERBOX_VOICES_EVENT_NAME;
+window.addEventListener(CHATTERBOX_VOICES_EVENT_NAME, handleChatterboxVoicesUpdated);
+window.addEventListener('geminiPresets:changed', event => {
+    setAvailableGeminiPresets(event?.detail?.presets || []);
+});
+
+function setAvailableGeminiPresets(presets = []) {
+    const normalized = [];
+    if (Array.isArray(presets)) {
+        presets.forEach(preset => {
+            const title = (preset?.title || '').trim();
+            const prompt = (preset?.prompt || '').trim();
+            let id = (preset?.id || '').trim();
+            if (!title || !prompt) {
+                return;
+            }
+            if (!id) {
+                id = typeof crypto !== 'undefined' && crypto.randomUUID
+                    ? crypto.randomUUID()
+                    : `preset-${Date.now()}-${normalized.length}`;
+            }
+            normalized.push({ id, title, prompt });
+        });
+    }
+    availableGeminiPromptPresets = normalized;
+    populateGeminiPresetDropdown();
+}
+
+function populateGeminiPresetDropdown(selectedId) {
+    const select = document.getElementById('gemini-preset-select');
+    if (!select) return;
+    const previousValue = selectedId !== undefined ? selectedId : select.value;
+    select.innerHTML = '';
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Use default prompt';
+    select.appendChild(defaultOption);
+    availableGeminiPromptPresets.forEach(preset => {
+        const option = document.createElement('option');
+        option.value = preset.id;
+        option.textContent = preset.title;
+        option.title = preset.prompt;
+        select.appendChild(option);
+    });
+    if (previousValue) {
+        select.value = previousValue;
+        if (select.value !== previousValue) {
+            select.value = '';
+        }
+    }
+}
 
 function handleVoicesUpdated(event) {
     const detail = event?.detail || {};
@@ -44,8 +562,7 @@ function getFxState(speaker) {
     if (!voiceFxState[key]) {
         voiceFxState[key] = {
             pitch: DEFAULT_FX_STATE.pitch,
-            tempo: DEFAULT_FX_STATE.tempo,
-            tone: DEFAULT_FX_STATE.tone,
+            speed: DEFAULT_FX_STATE.speed,
             sampleText: DEFAULT_FX_STATE.sampleText
         };
     }
@@ -54,14 +571,16 @@ function getFxState(speaker) {
 
 function getFxPayload(speaker) {
     const state = getFxState(speaker);
-    return {
-        pitch: Number(state.pitch) || 0,
-        tempo: Number(state.tempo) || 1,
-        tone: state.tone || 'neutral'
-    };
+    const payload = {};
+    const pitch = Number(state.pitch) || 0;
+    if (Math.abs(pitch) > 0.01) {
+        payload.pitch = pitch;
+    }
+    return Object.keys(payload).length ? payload : null;
 }
 
 function createAssignment(voiceName, langCode, speakerKey) {
+    const state = getFxState(speakerKey);
     const assignment = {
         voice: voiceName,
         lang_code: langCode
@@ -69,6 +588,10 @@ function createAssignment(voiceName, langCode, speakerKey) {
     const fxPayload = getFxPayload(speakerKey);
     if (fxPayload) {
         assignment.fx = fxPayload;
+    }
+    const speedValue = Number(state.speed) || 1;
+    if (Math.abs(speedValue - 1) > 0.01) {
+        assignment.speed = Number(speedValue.toFixed(2));
     }
     return assignment;
 }
@@ -102,11 +625,22 @@ function renderFxPanel(container, speaker, options = {}) {
     const headerMarkup = showHeaderTitle
         ? `<div class="fx-header"><h4>${title}</h4></div>`
         : '';
+    const sharedActionsMarkup = useSharedPreview
+        ? `
+            <div class="fx-field fx-inline fx-actions">
+                <button type="button" class="btn btn-sm" data-role="fx-preview-btn">Quick Test</button>
+                <span class="fx-status" data-role="fx-status"></span>
+            </div>
+        `
+        : '';
     const previewMarkup = !useSharedPreview
         ? `
             <div class="fx-field fx-preview">
                 <textarea data-role="fx-sample-text" rows="2" placeholder="Preview text">${state.sampleText || buildDefaultSampleText(speaker)}</textarea>
-                <button type="button" class="btn btn-sm" data-role="fx-preview-btn">Quick Test</button>
+                <div class="fx-preview-actions">
+                    <button type="button" class="btn btn-sm" data-role="fx-preview-btn">Quick Test</button>
+                    <span class="fx-status" data-role="fx-status"></span>
+                </div>
             </div>
         `
         : '';
@@ -122,23 +656,13 @@ function renderFxPanel(container, speaker, options = {}) {
                     </div>
                 </div>
                 <div class="fx-field fx-inline fx-slider">
-                    <label>Tempo</label>
+                    <label>Speed</label>
                     <div class="slider-group">
-                        <input type="range" min="0.75" max="1.35" step="0.01" value="${state.tempo}" data-role="fx-tempo">
-                        <span class="slider-value" data-role="fx-tempo-value">${state.tempo.toFixed(2)}x</span>
+                        <input type="range" min="0.5" max="2.0" step="0.05" value="${state.speed}" data-role="fx-speed">
+                        <span class="slider-value" data-role="fx-speed-value">${state.speed.toFixed(2)}x</span>
                     </div>
                 </div>
-                <div class="fx-field fx-inline fx-tone ${useSharedPreview ? 'fx-tone-actions' : ''}">
-                    <label>Tone</label>
-                    <div class="tone-pill-group" data-role="fx-tone-group">
-                        ${['neutral', 'warm', 'bright'].map(tone => `
-                            <button type="button" class="tone-pill ${state.tone === tone ? 'active' : ''}" data-tone="${tone}">
-                                ${tone.charAt(0).toUpperCase() + tone.slice(1)}
-                            </button>
-                        `).join('')}
-                    </div>
-                    ${useSharedPreview ? '<button type="button" class="btn btn-sm" data-role="fx-preview-btn">Quick Test</button>' : ''}
-                </div>
+                ${sharedActionsMarkup}
             </div>
         </div>
     `;
@@ -153,9 +677,8 @@ function renderFxPanel(container, speaker, options = {}) {
 
     const pitchInput = container.querySelector('[data-role="fx-pitch"]');
     const pitchValue = container.querySelector('[data-role="fx-pitch-value"]');
-    const tempoInput = container.querySelector('[data-role="fx-tempo"]');
-    const tempoValue = container.querySelector('[data-role="fx-tempo-value"]');
-    const toneButtonsEls = container.querySelectorAll('[data-tone]');
+    const speedInput = container.querySelector('[data-role="fx-speed"]');
+    const speedValue = container.querySelector('[data-role="fx-speed-value"]');
     const previewRoot = useSharedPreview ? container : (previewSlot || container);
     const previewBtn = previewRoot.querySelector('[data-role="fx-preview-btn"]');
     const sampleInput = useSharedPreview
@@ -168,19 +691,12 @@ function renderFxPanel(container, speaker, options = {}) {
             pitchValue.textContent = `${state.pitch.toFixed(1)} st`;
         });
     }
-    if (tempoInput && tempoValue) {
-        tempoInput.addEventListener('input', event => {
-            state.tempo = parseFloat(event.target.value) || 1;
-            tempoValue.textContent = `${state.tempo.toFixed(2)}x`;
+    if (speedInput && speedValue) {
+        speedInput.addEventListener('input', event => {
+            state.speed = parseFloat(event.target.value) || 1;
+            speedValue.textContent = `${state.speed.toFixed(2)}x`;
         });
     }
-    toneButtonsEls.forEach(button => {
-        button.addEventListener('click', () => {
-            const selectedTone = button.dataset.tone || 'neutral';
-            state.tone = selectedTone;
-            toneButtonsEls.forEach(btn => btn.classList.toggle('active', btn === button));
-        });
-    });
     if (!useSharedPreview && sampleInput) {
         sampleInput.addEventListener('input', event => {
             state.sampleText = event.target.value;
@@ -217,11 +733,24 @@ async function handleFxPreview(speaker, container) {
         voice: voiceName,
         lang_code: langCode,
         text: sampleText,
-        speed: parseFloat(document.getElementById('speed')?.value) || 1.0,
     };
     const fxPayload = getFxPayload(speaker);
     if (fxPayload) {
         payload.fx = fxPayload;
+    }
+    const panelSpeed = Number(state.speed) || NaN;
+    const globalSpeed = parseFloat(document.getElementById('speed')?.value) || 1.0;
+    let previewSpeed = Number.isFinite(panelSpeed) ? panelSpeed : globalSpeed;
+    previewSpeed = Math.max(0.5, Math.min(previewSpeed, 2.0));
+    payload.speed = previewSpeed;
+
+    const selectedEngine = getSelectedJobEngine() || runtimeSettings?.tts_engine;
+    if (selectedEngine) {
+        payload.tts_engine = selectedEngine;
+        const overrides = collectEngineOverrides(selectedEngine);
+        if (overrides) {
+            payload.engine_options = overrides;
+        }
     }
 
     try {
@@ -303,6 +832,15 @@ function refreshChapterHint() {
     }
 }
 
+function getSelectedGeminiPromptOverride() {
+    const select = document.getElementById('gemini-preset-select');
+    if (!select) return '';
+    const selectedId = select.value;
+    if (!selectedId) return '';
+    const preset = availableGeminiPromptPresets.find(entry => entry.id === selectedId);
+    return preset?.prompt || '';
+}
+
 async function processWithGemini(buttonEl) {
     const inputEl = document.getElementById('input-text');
     if (!inputEl) return;
@@ -314,6 +852,7 @@ async function processWithGemini(buttonEl) {
     }
 
     const splitByChapter = document.getElementById('split-chapters-checkbox')?.checked ?? false;
+    const promptOverride = getSelectedGeminiPromptOverride();
     updateGeminiProgress({ visible: true, label: 'Preparing Gemini request…', count: '', fill: 5 });
 
     const originalLabel = buttonEl ? buttonEl.textContent : '';
@@ -382,6 +921,9 @@ async function processWithGemini(buttonEl) {
                 const payload = {
                     content: section.content || ''
                 };
+                if (promptOverride) {
+                    payload.prompt_override = promptOverride;
+                }
                 if (knownSpeakers.size > 0) {
                     payload.known_speakers = Array.from(knownSpeakers);
                 }
@@ -425,7 +967,10 @@ async function processWithGemini(buttonEl) {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ text })
+                body: JSON.stringify({
+                    text,
+                    prompt_override: promptOverride || undefined
+                })
             });
 
             const data = await response.json();
@@ -488,8 +1033,11 @@ document.addEventListener('DOMContentLoaded', () => {
     initTabs();
     loadHealthStatus();
     setupEventListeners();
-    populateDefaultVoiceSelect();
+    preloadGenerationControls();
     initDefaultVoiceFxPanel();
+    if (typeof loadLibraryItems === 'function') {
+        loadLibraryItems();
+    }
     initAutoAnalyze();
     const chapterCheckbox = document.getElementById('split-chapters-checkbox');
     syncFullStoryOption(chapterCheckbox, true);
@@ -611,6 +1159,58 @@ function setupEventListeners() {
             }
         });
     }
+
+    const outputFormatSelect = document.getElementById('job-output-format');
+    if (outputFormatSelect) {
+        outputFormatSelect.addEventListener('change', event => {
+            handleOutputFormatChange(event.target.value);
+        });
+        handleOutputFormatChange(outputFormatSelect.value);
+    }
+
+    const jobEngineSelect = document.getElementById('job-tts-engine');
+    if (jobEngineSelect) {
+        jobEngineSelect.addEventListener('change', event => {
+            const engineName = (event.target.value || '').toLowerCase();
+            updateEngineUI(engineName);
+            updateModeIndicator(engineName);
+            const currentText = document.getElementById('input-text')?.value?.trim();
+            if (currentText && lastAnalyzedText && currentText === lastAnalyzedText) {
+                analyzeText({ auto: true });
+            }
+        });
+    }
+
+    const referenceUploadInput = document.getElementById('reference-prompt-upload-input');
+    if (referenceUploadInput) {
+        referenceUploadInput.addEventListener('change', handleReferenceUpload);
+    }
+    const globalReferenceSelect = document.getElementById('chatterbox-reference-select');
+    if (globalReferenceSelect) {
+        globalReferenceSelect.addEventListener('change', handleReferenceSelectChange);
+    }
+    refreshGlobalChatterboxPreviewButton();
+    const globalPreviewBtn = document.getElementById('global-chatterbox-preview-btn');
+    if (globalPreviewBtn) {
+        globalPreviewBtn.addEventListener('click', event => {
+            const select = document.getElementById('chatterbox-reference-select');
+            const selection = select?.value?.trim();
+            if (!selection) {
+                showNotification('Select a reference voice first.', 'warning');
+                return;
+            }
+            const voiceEntry = findChatterboxVoiceByPath(selection);
+            if (!voiceEntry || !voiceEntry.id) {
+                showNotification('Unable to resolve that reference voice.', 'warning');
+                return;
+            }
+            if (!window.chatterboxPreviewController) {
+                showNotification('Preview controls are still loading. Try again shortly.', 'warning');
+                return;
+            }
+            window.chatterboxPreviewController.toggleById(voiceEntry.id, event.currentTarget);
+        });
+    }
 }
 
 function syncFullStoryOption(chapterCheckbox, force = false) {
@@ -630,6 +1230,26 @@ function syncFullStoryOption(chapterCheckbox, force = false) {
     }
 }
 
+// Engine display name mapping
+const engineDisplayNames = {
+    'kokoro': 'Kokoro · Local GPU',
+    'kokoro_replicate': 'Kokoro · Replicate',
+    'chatterbox_turbo_local': 'Chatterbox · Local GPU',
+    'chatterbox_turbo_replicate': 'Chatterbox · Replicate'
+};
+
+// Update mode indicator based on engine name (called when dropdown changes)
+function updateModeIndicator(engineName) {
+    const modeEl = document.getElementById('current-mode');
+    if (!modeEl) return;
+    
+    const normalizedEngine = (engineName || 'kokoro').toLowerCase();
+    const isLocal = normalizedEngine === 'kokoro' || normalizedEngine === 'chatterbox_turbo_local';
+    
+    modeEl.textContent = engineDisplayNames[normalizedEngine] || normalizedEngine;
+    modeEl.style.color = isLocal ? '#10b981' : '#f59e0b';
+}
+
 // Load health status
 async function loadHealthStatus() {
     try {
@@ -637,14 +1257,10 @@ async function loadHealthStatus() {
         const data = await response.json();
         
         if (data.success) {
-            document.getElementById('current-mode').textContent = 
-                data.mode === 'local' ? 'Local GPU' : 'Replicate API';
+            const engineName = data.tts_engine || 'kokoro';
+            updateModeIndicator(engineName);
             document.getElementById('cuda-status').textContent = 
                 data.cuda_available ? 'Available' : 'Not Available';
-            
-            // Update mode indicator color
-            const modeEl = document.getElementById('current-mode');
-            modeEl.style.color = data.mode === 'local' ? '#10b981' : '#f59e0b';
         }
     } catch (error) {
         console.error('Error loading health status:', error);
@@ -672,12 +1288,17 @@ async function analyzeText(options = {}) {
     analyzeInFlight = true;
     analyzeRerunRequested = false;
     try {
+        const payload = { text };
+        const selectedEngine = getSelectedJobEngine() || runtimeSettings?.tts_engine;
+        if (selectedEngine) {
+            payload.tts_engine = selectedEngine;
+        }
         const response = await fetch('/api/analyze', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ text })
+            body: JSON.stringify(payload)
         });
         
         const data = await response.json();
@@ -773,8 +1394,28 @@ function displayInlineVoiceAssignments(speakers) {
     speakers.forEach(speaker => {
         const row = document.createElement('div');
         row.className = 'voice-assignment-row';
+        row.dataset.speaker = speaker;
         row.innerHTML = `
-            <div class="voice-fx-inline voice-inline-card" data-speaker="${speaker}"></div>
+            <div class="assignment-header">
+                <span class="speaker-label">${speaker}</span>
+            </div>
+            <div class="assignment-body compact-assignment">
+                <div class="assignment-selection-group">
+                    <div class="assignment-select voice-select-inline" data-role="kokoro-control">
+                        <label>${speaker}</label>
+                        <select class="voice-select" data-speaker="${speaker}">
+                            <option value="">Select Voice...</option>
+                        </select>
+                    </div>
+                    <div class="assignment-select turbo-inline-control" data-role="turbo-control">
+                        <label>Chatterbox Voice Prompt</label>
+                        <select class="reference-select" data-speaker="${speaker}">
+                            <option value="">Inherit from global selection</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="voice-fx-inline voice-inline-card" data-speaker="${speaker}" data-role="kokoro-panel"></div>
+            </div>
         `;
         container.appendChild(row);
         const fxContainer = row.querySelector('.voice-fx-inline');
@@ -784,29 +1425,12 @@ function displayInlineVoiceAssignments(speakers) {
                 showHeader: false,
                 useSharedPreview: true
             });
-
-            const fields = fxContainer.querySelector('.fx-fields');
-            if (fields) {
-                const selectBlock = document.createElement('div');
-                selectBlock.className = 'fx-field voice-select-inline';
-                const label = document.createElement('label');
-                label.textContent = speaker;
-                const selectEl = document.createElement('select');
-                selectEl.className = 'voice-select';
-                selectEl.dataset.speaker = speaker;
-                selectEl.innerHTML = '<option value="">Select Voice...</option>';
-                selectBlock.appendChild(label);
-                selectBlock.appendChild(selectEl);
-                fields.insertBefore(selectBlock, fields.firstChild);
-            }
         }
     });
     
-    // Populate voice options (wait for voices to load if needed)
     if (window.availableVoices) {
         populateVoiceSelects();
     } else {
-        // Wait for voices to load
         const checkVoices = setInterval(() => {
             if (window.availableVoices) {
                 clearInterval(checkVoices);
@@ -816,6 +1440,8 @@ function displayInlineVoiceAssignments(speakers) {
     }
     
     document.getElementById('inline-voice-assignments').style.display = 'block';
+    populateReferenceSelects();
+    updateAssignmentModes(getSelectedJobEngine() || runtimeSettings?.tts_engine || 'kokoro');
 }
 
 // Populate voice select dropdowns
@@ -874,12 +1500,30 @@ async function generateAudio() {
     
     const splitByChapter = document.getElementById('split-chapters-checkbox')?.checked || false;
     const generateFullStory = splitByChapter && (document.getElementById('full-story-checkbox')?.checked || false);
+    const outputFormat = document.getElementById('job-output-format')?.value || undefined;
+    const outputBitrate = document.getElementById('job-output-bitrate')?.value || undefined;
+
+    const selectedEngine = getSelectedJobEngine() || runtimeSettings?.tts_engine;
     const payload = {
         text,
         split_by_chapter: splitByChapter,
         generate_full_story: generateFullStory,
-        voice_assignments: voiceAssignments
+        voice_assignments: voiceAssignments,
+        review_mode: true  // Always enabled - chunk review happens in library
     };
+    if (selectedEngine) {
+        payload.tts_engine = selectedEngine;
+        const overrides = collectEngineOverrides(selectedEngine);
+        if (overrides) {
+            payload.engine_options = overrides;
+        }
+    }
+    if (outputFormat) {
+        payload.output_format = outputFormat;
+    }
+    if (outputFormat === 'mp3' && outputBitrate) {
+        payload.output_bitrate_kbps = parseInt(outputBitrate, 10);
+    }
     try {
         const response = await fetch('/api/generate', {
             method: 'POST',
@@ -1030,15 +1674,19 @@ function resetVoiceAssignments() {
     }
 
     Object.keys(voiceFxState).forEach(key => {
-        if (key === 'default') {
+        if (!voiceFxState[key]) {
             voiceFxState[key] = {
                 pitch: DEFAULT_FX_STATE.pitch,
-                tempo: DEFAULT_FX_STATE.tempo,
-                tone: DEFAULT_FX_STATE.tone,
+                speed: DEFAULT_FX_STATE.speed,
                 sampleText: DEFAULT_FX_STATE.sampleText
             };
         } else {
-            delete voiceFxState[key];
+            // Ensure legacy objects get any new defaults
+            voiceFxState[key] = {
+                pitch: Number.isFinite(voiceFxState[key].pitch) ? voiceFxState[key].pitch : DEFAULT_FX_STATE.pitch,
+                speed: Number.isFinite(voiceFxState[key].speed) ? voiceFxState[key].speed : DEFAULT_FX_STATE.speed,
+                sampleText: voiceFxState[key].sampleText ?? DEFAULT_FX_STATE.sampleText
+            };
         }
     });
 
@@ -1143,23 +1791,82 @@ function getLangCodeForVoice(voiceName) {
 }
 
 // Get voice assignments from UI (from inline assignments in Generate tab)
+function buildTurboSelectionMap() {
+    const map = {};
+    document.querySelectorAll('#inline-voice-assignment-list .voice-assignment-row').forEach(row => {
+        const speaker = row.dataset.speaker;
+        if (!speaker) return;
+        const reference = row.querySelector('.reference-select')?.value.trim();
+        map[speaker] = {
+            reference: reference || ''
+        };
+    });
+    return map;
+}
+
+function applyTurboSelections(assignments, turboSelections, globalReference) {
+    Object.entries(assignments).forEach(([speakerKey, assignment]) => {
+        const selection = turboSelections[speakerKey] || {};
+        const resolvedReference = selection.reference || globalReference || '';
+        if (!assignment.audio_prompt_path && resolvedReference) {
+            assignment.audio_prompt_path = resolvedReference;
+        }
+    });
+}
+
+function buildTurboAssignment(speakerKey, referencePath) {
+    const assignment = {};
+    if (referencePath) {
+        assignment.audio_prompt_path = referencePath;
+    }
+    const fxPayload = getFxPayload(speakerKey);
+    if (fxPayload) {
+        assignment.fx = fxPayload;
+    }
+    const state = getFxState(speakerKey);
+    const speedValue = Number(state?.speed) || 1;
+    if (Math.abs(speedValue - 1) > 0.01) {
+        assignment.speed = Number(speedValue.toFixed(2));
+    }
+    return Object.keys(assignment).length ? assignment : null;
+}
+
 function getVoiceAssignments() {
     const assignments = {};
     const selects = document.querySelectorAll('#inline-voice-assignment-list .voice-select');
-    
+    const engineName = getSelectedJobEngine() || runtimeSettings?.tts_engine || 'kokoro';
+    const turboEnabled = isTurboEngine(engineName);
+    const turboSelections = turboEnabled ? buildTurboSelectionMap() : {};
+    const globalReference = turboEnabled ? getGlobalReferenceSelection() : '';
+
     selects.forEach(select => {
         const speaker = select.dataset.speaker;
         const voiceName = select.value;
         
         if (voiceName && window.availableVoices) {
             const langCode = getLangCodeForVoice(voiceName);
-            console.log(`Voice ${voiceName} found with lang_code: ${langCode}`);
-            
             assignments[speaker] = createAssignment(voiceName, langCode, speaker);
         }
     });
+
+    if (turboEnabled) {
+        if (Object.keys(assignments).length) {
+            applyTurboSelections(assignments, turboSelections, globalReference);
+        } else {
+            const targets = (currentStats?.speakers && currentStats.speakers.length)
+                ? currentStats.speakers
+                : ['default'];
+            targets.forEach(speakerKey => {
+                const selection = turboSelections[speakerKey] || {};
+                const resolvedReference = selection.reference || globalReference || '';
+                const turboAssignment = buildTurboAssignment(speakerKey, resolvedReference);
+                if (turboAssignment) {
+                    assignments[speakerKey] = turboAssignment;
+                }
+            });
+        }
+    }
     
-    console.log('Voice assignments:', assignments);
     return assignments;
 }
 

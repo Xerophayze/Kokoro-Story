@@ -1,5 +1,5 @@
 """
-Custom voice storage utilities for Kokoro-Story.
+Custom voice storage utilities for TTS-Story.
 
 Allows creation of blended voices composed of existing Kokoro voice packs.
 """

@@ -2,7 +2,7 @@
 set -e
 
 echo "========================================"
-echo "Starting Kokoro-Story"
+echo "Starting TTS-Story"
 echo "========================================"
 echo
 

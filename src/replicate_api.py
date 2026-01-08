@@ -114,7 +114,8 @@ class ReplicateAPI:
         output_dir: str,
         speed: float = 1.0,
         max_concurrent: int = 3,
-        progress_cb=None
+        progress_cb=None,
+        chunk_cb=None
     ) -> List[str]:
         """
         Generate audio for multiple segments
@@ -175,6 +176,14 @@ class ReplicateAPI:
                     chunk_index += 1
                     if callable(progress_cb):
                         progress_cb()
+                    if callable(chunk_cb):
+                        chunk_meta = {
+                            "speaker": speaker,
+                            "text": chunk_text,
+                            "segment_index": seg_idx,
+                            "chunk_index": chunk_idx,
+                        }
+                        chunk_cb(chunk_index - 1, chunk_meta, str(output_path))
                     
                     # Rate limiting
                     if chunk_index % max_concurrent == 0:

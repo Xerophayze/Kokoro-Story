@@ -1,20 +1,262 @@
 // Settings Management
 
+const geminiPresetState = {
+    list: [],
+    editingId: null,
+    isPersisting: false,
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
     setupSettingsListeners();
 });
 
+function normalizeGeminiPreset(preset, fallbackIndex = 0) {
+    if (!preset || typeof preset !== 'object') {
+        return null;
+    }
+    const title = (preset.title || '').trim();
+    const prompt = (preset.prompt || '').trim();
+    if (!title || !prompt) {
+        return null;
+    }
+    let id = (preset.id || '').trim();
+    if (!id) {
+        id = typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `preset-${Date.now()}-${fallbackIndex}`;
+    }
+    return { id, title, prompt };
+}
+
+function sanitizeGeminiPreset(preset) {
+    if (!preset) return null;
+    return {
+        id: preset.id,
+        title: preset.title,
+        prompt: preset.prompt,
+    };
+}
+
+async function persistGeminiPresets(feedbackMessage) {
+    if (geminiPresetState.isPersisting) {
+        return;
+    }
+    geminiPresetState.isPersisting = true;
+    const payload = geminiPresetState.list
+        .map(sanitizeGeminiPreset)
+        .filter(Boolean);
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ gemini_prompt_presets: payload }),
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to save presets');
+        }
+        window.dispatchEvent(new CustomEvent('geminiPresets:changed', {
+            detail: {
+                presets: payload
+            }
+        }));
+        if (feedbackMessage) {
+            updateGeminiPresetHint(feedbackMessage, 'success');
+        }
+    } catch (error) {
+        console.error('Failed to persist Gemini presets', error);
+        updateGeminiPresetHint('Preset list updated locally but failed to save. Try again.', 'warning');
+    } finally {
+        geminiPresetState.isPersisting = false;
+    }
+}
+
+function setGeminiPresetState(presets = []) {
+    const normalized = [];
+    if (Array.isArray(presets)) {
+        presets.forEach((preset, index) => {
+            const normalizedPreset = normalizeGeminiPreset(preset, index);
+            if (normalizedPreset) {
+                normalized.push(normalizedPreset);
+            }
+        });
+    }
+    geminiPresetState.list = normalized;
+    geminiPresetState.editingId = null;
+    renderGeminiPresetList();
+    resetGeminiPresetForm(true);
+    updateGeminiPresetHint('Fill both fields to create a new preset, or select Edit on an existing preset.');
+}
+
+function renderGeminiPresetList() {
+    const listEl = document.getElementById('gemini-preset-list');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    if (!geminiPresetState.list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'gemini-preset-empty';
+        empty.textContent = listEl.dataset.emptyText || 'No prompt presets yet.';
+        listEl.appendChild(empty);
+        return;
+    }
+
+    geminiPresetState.list.forEach(preset => {
+        const item = document.createElement('div');
+        item.className = 'gemini-preset-item';
+        item.title = preset.prompt;
+        item.dataset.id = preset.id;
+
+        const meta = document.createElement('div');
+        meta.className = 'gemini-preset-meta';
+        const titleEl = document.createElement('div');
+        titleEl.className = 'gemini-preset-title';
+        titleEl.textContent = preset.title;
+        meta.appendChild(titleEl);
+
+        const actions = document.createElement('div');
+        actions.className = 'gemini-preset-actions';
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'btn btn-secondary btn-xs';
+        editBtn.dataset.action = 'edit';
+        editBtn.dataset.id = preset.id;
+        editBtn.textContent = 'Edit';
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'btn btn-ghost btn-xs';
+        deleteBtn.dataset.action = 'delete';
+        deleteBtn.dataset.id = preset.id;
+        deleteBtn.textContent = 'Delete';
+        actions.appendChild(editBtn);
+        actions.appendChild(deleteBtn);
+
+        item.appendChild(meta);
+        item.appendChild(actions);
+        listEl.appendChild(item);
+    });
+}
+
+function getGeminiPresetTitleInput() {
+    return document.getElementById('gemini-preset-title');
+}
+
+function getGeminiPresetTextInput() {
+    return document.getElementById('gemini-preset-text');
+}
+
+function getGeminiPresetHintEl() {
+    return document.getElementById('gemini-preset-form-hint');
+}
+
+function updateGeminiPresetHint(message, tone = 'muted') {
+    const hintEl = getGeminiPresetHintEl();
+    if (!hintEl) return;
+    hintEl.textContent = message;
+    hintEl.dataset.tone = tone;
+}
+
+function resetGeminiPresetForm(skipHintUpdate = false) {
+    const titleInput = getGeminiPresetTitleInput();
+    const textInput = getGeminiPresetTextInput();
+    if (titleInput) titleInput.value = '';
+    if (textInput) textInput.value = '';
+    geminiPresetState.editingId = null;
+    if (!skipHintUpdate) {
+        updateGeminiPresetHint('Fill both fields to create a new preset, or select Edit on an existing preset.');
+    } else {
+        const hintEl = getGeminiPresetHintEl();
+        if (hintEl) {
+            hintEl.dataset.tone = 'muted';
+        }
+    }
+}
+
+async function handleGeminiPresetSave() {
+    const titleInput = getGeminiPresetTitleInput();
+    const textInput = getGeminiPresetTextInput();
+    if (!titleInput || !textInput) return;
+    const title = titleInput.value.trim();
+    const prompt = textInput.value.trim();
+    if (!title || !prompt) {
+        updateGeminiPresetHint('Both title and prompt are required.', 'warning');
+        return;
+    }
+
+    if (geminiPresetState.editingId) {
+        const idx = geminiPresetState.list.findIndex(preset => preset.id === geminiPresetState.editingId);
+        if (idx !== -1) {
+            geminiPresetState.list[idx] = {
+                ...geminiPresetState.list[idx],
+                title,
+                prompt,
+            };
+        }
+        renderGeminiPresetList();
+        await persistGeminiPresets(`Updated preset "${title}".`);
+    } else {
+        const newPreset = {
+            id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `preset-${Date.now()}`,
+            title,
+            prompt,
+        };
+        geminiPresetState.list.push(newPreset);
+        renderGeminiPresetList();
+        await persistGeminiPresets(`Added preset "${title}".`);
+    }
+
+    geminiPresetState.editingId = null;
+    resetGeminiPresetForm(true);
+}
+
+async function handleGeminiPresetListClick(event) {
+    const action = event.target?.dataset?.action;
+    const presetId = event.target?.dataset?.id;
+    if (!action || !presetId) return;
+    if (action === 'edit') {
+        const preset = geminiPresetState.list.find(entry => entry.id === presetId);
+        if (!preset) return;
+        const titleInput = getGeminiPresetTitleInput();
+        const textInput = getGeminiPresetTextInput();
+        if (titleInput) titleInput.value = preset.title;
+        if (textInput) textInput.value = preset.prompt;
+        geminiPresetState.editingId = presetId;
+        updateGeminiPresetHint(`Editing preset "${preset.title}". Save to apply changes or Clear to cancel.`, 'info');
+    } else if (action === 'delete') {
+        const index = geminiPresetState.list.findIndex(entry => entry.id === presetId);
+        if (index === -1) return;
+        const [removed] = geminiPresetState.list.splice(index, 1);
+        if (geminiPresetState.editingId === presetId) {
+            geminiPresetState.editingId = null;
+            resetGeminiPresetForm(true);
+        }
+        renderGeminiPresetList();
+        await persistGeminiPresets(`Deleted preset "${removed.title}".`);
+    }
+}
+
+function handleGeminiPresetReset() {
+    resetGeminiPresetForm();
+    updateGeminiPresetHint('Cleared preset form.', 'info');
+}
+
+function toggleEngineSettingsSections(engineName) {
+    // Replicate API section is always visible (shared between Kokoro and Chatterbox Replicate)
+    const turboLocalSection = document.getElementById('chatterbox-turbo-local-settings');
+    const turboReplicateSection = document.getElementById('chatterbox-turbo-replicate-settings');
+
+    if (turboLocalSection) {
+        turboLocalSection.style.display = engineName === 'chatterbox_turbo_local' ? 'block' : 'none';
+    }
+    if (turboReplicateSection) {
+        turboReplicateSection.style.display = engineName === 'chatterbox_turbo_replicate' ? 'block' : 'none';
+    }
+}
+
 // Setup event listeners
 function setupSettingsListeners() {
-    // Mode selection
-    document.querySelectorAll('input[name="mode"]').forEach(radio => {
-        radio.addEventListener('change', (e) => {
-            const replicateSettings = document.getElementById('replicate-settings');
-            replicateSettings.style.display = e.target.value === 'replicate' ? 'block' : 'none';
-        });
-    });
-    
     // Speed slider
     const speedSlider = document.getElementById('speed');
     const speedValue = document.getElementById('speed-value');
@@ -32,6 +274,43 @@ function setupSettingsListeners() {
     if (fetchGeminiModelsBtn) {
         fetchGeminiModelsBtn.addEventListener('click', () => fetchGeminiModels(fetchGeminiModelsBtn));
     }
+
+    const ttsEngineSelect = document.getElementById('settings-tts-engine');
+    if (ttsEngineSelect) {
+        ttsEngineSelect.addEventListener('change', (event) => {
+            const engineName = (event.target.value || '').toLowerCase();
+            toggleEngineSettingsSections(engineName);
+        });
+    }
+
+    const defaultFormatSelect = document.getElementById('settings-output-format');
+    if (defaultFormatSelect) {
+        defaultFormatSelect.addEventListener('change', () => {
+            updateSettingsBitrateState();
+        });
+    }
+
+    const presetSaveBtn = document.getElementById('save-gemini-preset-btn');
+    if (presetSaveBtn) {
+        presetSaveBtn.addEventListener('click', handleGeminiPresetSave);
+    }
+    const presetResetBtn = document.getElementById('reset-gemini-preset-btn');
+    if (presetResetBtn) {
+        presetResetBtn.addEventListener('click', handleGeminiPresetReset);
+    }
+    const presetList = document.getElementById('gemini-preset-list');
+    if (presetList) {
+        presetList.addEventListener('click', handleGeminiPresetListClick);
+    }
+}
+
+function updateSettingsBitrateState() {
+    const formatSelect = document.getElementById('settings-output-format');
+    const bitrateSelect = document.getElementById('settings-output-bitrate');
+    if (!formatSelect || !bitrateSelect) return;
+    const isMp3 = (formatSelect.value || '').toLowerCase() === 'mp3';
+    bitrateSelect.disabled = !isMp3;
+    bitrateSelect.parentElement?.classList.toggle('disabled', !isMp3);
 }
 
 async function fetchGeminiModels(buttonEl) {
@@ -120,41 +399,55 @@ async function loadSettings() {
     }
 }
 
+function setElementValue(id, value, fallback = '') {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = value ?? fallback ?? '';
+}
+
+function setElementText(id, text, fallback = '') {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text ?? fallback ?? '';
+}
+
+function setCheckboxValue(id, checked, fallback = false) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.checked = checked ?? fallback;
+}
+
 // Apply settings to UI
 function applySettings(settings) {
-    // Mode
-    const modeRadio = document.querySelector(`input[name="mode"][value="${settings.mode}"]`);
-    if (modeRadio) {
-        modeRadio.checked = true;
-        const replicateSettings = document.getElementById('replicate-settings');
-        replicateSettings.style.display = settings.mode === 'replicate' ? 'block' : 'none';
-    }
-    
-    // API Key
+    // Kokoro Replicate API Key
     if (settings.replicate_api_key) {
-        document.getElementById('api-key').value = settings.replicate_api_key;
+        setElementValue('kokoro-replicate-api-key', settings.replicate_api_key);
     }
     
     // Chunk size
-    document.getElementById('chunk-size').value = settings.chunk_size || 500;
+    setElementValue('chunk-size', settings.chunk_size ?? 500, 500);
     
     // Speed
     const speed = settings.speed || 1.0;
-    document.getElementById('speed').value = speed;
-    document.getElementById('speed-value').textContent = speed + 'x';
+    setElementValue('speed', speed, 1.0);
+    setElementText('speed-value', speed + 'x', '1.0x');
     
-    // Output format
-    document.getElementById('output-format').value = settings.output_format || 'mp3';
+    // Default output format / bitrate
+    const defaultFormat = (settings.output_format || 'mp3').toLowerCase();
+    setElementValue('settings-output-format', defaultFormat, 'mp3');
+    const defaultBitrateValue = settings.output_bitrate_kbps ?? 128;
+    setElementValue('settings-output-bitrate', String(defaultBitrateValue), '128');
+    updateSettingsBitrateState();
     
     // Crossfade
-    document.getElementById('crossfade').value = settings.crossfade_duration || 0.1;
+    setElementValue('crossfade', settings.crossfade_duration ?? 0.1, 0.1);
     
     // Silence controls
-    document.getElementById('intro-silence').value = settings.intro_silence_ms ?? 0;
-    document.getElementById('inter-silence').value = settings.inter_chunk_silence_ms ?? 0;
+    setElementValue('intro-silence', settings.intro_silence_ms ?? 0, 0);
+    setElementValue('inter-silence', settings.inter_chunk_silence_ms ?? 0, 0);
 
     // Gemini settings
-    document.getElementById('gemini-api-key').value = settings.gemini_api_key || '';
+    setElementValue('gemini-api-key', settings.gemini_api_key || '');
     const geminiModelSelect = document.getElementById('gemini-model');
     const savedGeminiModel = settings.gemini_model || 'gemini-1.5-flash';
 
@@ -168,23 +461,138 @@ function applySettings(settings) {
         }
         geminiModelSelect.value = savedGeminiModel;
     }
-    document.getElementById('gemini-prompt').value = settings.gemini_prompt || '';
+    setElementValue('gemini-prompt', settings.gemini_prompt || '');
+    setGeminiPresetState(settings.gemini_prompt_presets || []);
+
+    // Engine + Chatterbox settings
+    const ttsEngineSelect = document.getElementById('settings-tts-engine');
+    const preferredEngine = (settings.tts_engine || 'kokoro').toLowerCase();
+    if (ttsEngineSelect) {
+        ttsEngineSelect.value = preferredEngine;
+    }
+    toggleEngineSettingsSections(preferredEngine);
+
+    // Chatterbox Local settings
+    const localDeviceInput = document.getElementById('chatterbox-turbo-local-device');
+    if (localDeviceInput) {
+        localDeviceInput.value = settings.chatterbox_turbo_local_device || 'auto';
+    }
+    const localPromptInput = document.getElementById('chatterbox-turbo-local-prompt');
+    if (localPromptInput) {
+        localPromptInput.value = settings.chatterbox_turbo_local_default_prompt || '';
+    }
+    const localTemp = document.getElementById('chatterbox-turbo-local-temperature');
+    if (localTemp) {
+        localTemp.value = settings.chatterbox_turbo_local_temperature ?? 0.8;
+    }
+    const localTopP = document.getElementById('chatterbox-turbo-local-top-p');
+    if (localTopP) {
+        localTopP.value = settings.chatterbox_turbo_local_top_p ?? 0.95;
+    }
+    const localTopK = document.getElementById('chatterbox-turbo-local-top-k');
+    if (localTopK) {
+        localTopK.value = settings.chatterbox_turbo_local_top_k ?? 1000;
+    }
+    const localRepPenalty = document.getElementById('chatterbox-turbo-local-rep-penalty');
+    if (localRepPenalty) {
+        localRepPenalty.value = settings.chatterbox_turbo_local_repetition_penalty ?? 1.2;
+    }
+    const localCfg = document.getElementById('chatterbox-turbo-local-cfg-weight');
+    if (localCfg) {
+        localCfg.value = settings.chatterbox_turbo_local_cfg_weight ?? 0.0;
+    }
+    const localExaggeration = document.getElementById('chatterbox-turbo-local-exaggeration');
+    if (localExaggeration) {
+        localExaggeration.value = settings.chatterbox_turbo_local_exaggeration ?? 0.0;
+    }
+    const localNorm = document.getElementById('chatterbox-turbo-local-norm');
+    if (localNorm) {
+        localNorm.checked = settings.chatterbox_turbo_local_norm_loudness !== false;
+    }
+    const localPromptNorm = document.getElementById('chatterbox-turbo-local-prompt-norm');
+    if (localPromptNorm) {
+        localPromptNorm.checked = settings.chatterbox_turbo_local_prompt_norm_loudness !== false;
+    }
+
+    // Chatterbox Replicate settings (uses shared replicate_api_key)
+    const turboModelInput = document.getElementById('chatterbox-turbo-replicate-model');
+    if (turboModelInput) {
+        turboModelInput.value = settings.chatterbox_turbo_replicate_model || '';
+    }
+    const turboVoiceInput = document.getElementById('chatterbox-turbo-replicate-voice');
+    if (turboVoiceInput) {
+        turboVoiceInput.value = settings.chatterbox_turbo_replicate_voice || '';
+    }
+    const turboTempInput = document.getElementById('chatterbox-turbo-replicate-temperature');
+    if (turboTempInput) {
+        turboTempInput.value = settings.chatterbox_turbo_replicate_temperature ?? 0.8;
+    }
+    const turboTopPInput = document.getElementById('chatterbox-turbo-replicate-top-p');
+    if (turboTopPInput) {
+        turboTopPInput.value = settings.chatterbox_turbo_replicate_top_p ?? 0.95;
+    }
+    const turboTopKInput = document.getElementById('chatterbox-turbo-replicate-top-k');
+    if (turboTopKInput) {
+        turboTopKInput.value = settings.chatterbox_turbo_replicate_top_k ?? 1000;
+    }
+    const turboRepPenaltyInput = document.getElementById('chatterbox-turbo-replicate-rep-penalty');
+    if (turboRepPenaltyInput) {
+        turboRepPenaltyInput.value = settings.chatterbox_turbo_replicate_repetition_penalty ?? 1.2;
+    }
+    const turboSeedInput = document.getElementById('chatterbox-turbo-replicate-seed');
+    if (turboSeedInput) {
+        turboSeedInput.value =
+            settings.chatterbox_turbo_replicate_seed === null ||
+            settings.chatterbox_turbo_replicate_seed === undefined
+                ? ''
+                : settings.chatterbox_turbo_replicate_seed;
+    }
 }
 
 // Save settings
 async function saveSettings() {
+    const defaultFormatSelect = document.getElementById('settings-output-format');
+    const defaultBitrateSelect = document.getElementById('settings-output-bitrate');
+    const defaultFormat = defaultFormatSelect ? defaultFormatSelect.value : 'mp3';
+    const defaultBitrate = defaultBitrateSelect ? parseInt(defaultBitrateSelect.value, 10) || 128 : 128;
+
+    const kokoroReplicateKeyEl = document.getElementById('kokoro-replicate-api-key');
     const settings = {
-        mode: document.querySelector('input[name="mode"]:checked').value,
-        replicate_api_key: document.getElementById('api-key').value,
+        replicate_api_key: kokoroReplicateKeyEl ? kokoroReplicateKeyEl.value : '',
         chunk_size: parseInt(document.getElementById('chunk-size').value),
         speed: parseFloat(document.getElementById('speed').value),
-        output_format: document.getElementById('output-format').value,
+        output_format: defaultFormat,
         crossfade_duration: parseFloat(document.getElementById('crossfade').value),
         intro_silence_ms: parseInt(document.getElementById('intro-silence').value, 10) || 0,
         inter_chunk_silence_ms: parseInt(document.getElementById('inter-silence').value, 10) || 0,
         gemini_api_key: document.getElementById('gemini-api-key').value,
         gemini_model: document.getElementById('gemini-model').value,
-        gemini_prompt: document.getElementById('gemini-prompt').value
+        gemini_prompt: document.getElementById('gemini-prompt').value,
+        gemini_prompt_presets: geminiPresetState.list.map(preset => ({ ...preset })),
+        tts_engine: document.getElementById('settings-tts-engine').value,
+        chatterbox_turbo_local_device: document.getElementById('chatterbox-turbo-local-device').value,
+        chatterbox_turbo_local_default_prompt: document.getElementById('chatterbox-turbo-local-prompt').value,
+        chatterbox_turbo_local_temperature: parseFloat(document.getElementById('chatterbox-turbo-local-temperature').value) || 0.8,
+        chatterbox_turbo_local_top_p: parseFloat(document.getElementById('chatterbox-turbo-local-top-p').value) || 0.95,
+        chatterbox_turbo_local_top_k: parseInt(document.getElementById('chatterbox-turbo-local-top-k').value, 10) || 1000,
+        chatterbox_turbo_local_repetition_penalty: parseFloat(document.getElementById('chatterbox-turbo-local-rep-penalty').value) || 1.2,
+        chatterbox_turbo_local_cfg_weight: parseFloat(document.getElementById('chatterbox-turbo-local-cfg-weight').value) || 0,
+        chatterbox_turbo_local_exaggeration: parseFloat(document.getElementById('chatterbox-turbo-local-exaggeration').value) || 0,
+        chatterbox_turbo_local_norm_loudness: document.getElementById('chatterbox-turbo-local-norm').checked,
+        chatterbox_turbo_local_prompt_norm_loudness: document.getElementById('chatterbox-turbo-local-prompt-norm').checked,
+        chatterbox_turbo_replicate_model: document.getElementById('chatterbox-turbo-replicate-model').value,
+        chatterbox_turbo_replicate_voice: document.getElementById('chatterbox-turbo-replicate-voice').value,
+        chatterbox_turbo_replicate_temperature: parseFloat(document.getElementById('chatterbox-turbo-replicate-temperature').value) || 0.8,
+        chatterbox_turbo_replicate_top_p: parseFloat(document.getElementById('chatterbox-turbo-replicate-top-p').value) || 0.95,
+        chatterbox_turbo_replicate_top_k: parseInt(document.getElementById('chatterbox-turbo-replicate-top-k').value, 10) || 1000,
+        chatterbox_turbo_replicate_repetition_penalty: parseFloat(document.getElementById('chatterbox-turbo-replicate-rep-penalty').value) || 1.2,
+        chatterbox_turbo_replicate_seed: (() => {
+            const raw = document.getElementById('chatterbox-turbo-replicate-seed').value.trim();
+            if (!raw) return null;
+            const parsed = parseInt(raw, 10);
+            return Number.isFinite(parsed) ? parsed : null;
+        })(),
+        output_bitrate_kbps: defaultBitrate
     };
     
     const saveBtn = document.getElementById('save-settings-btn');
@@ -204,7 +612,13 @@ async function saveSettings() {
         
         if (data.success) {
             alert('Settings saved successfully!');
-            loadHealthStatus(); // Refresh status bar
+            // Refresh status bar - loadHealthStatus is defined in main.js
+            if (typeof loadHealthStatus === 'function') {
+                loadHealthStatus();
+            } else {
+                console.warn('loadHealthStatus not available, reloading page');
+                location.reload();
+            }
         } else {
             alert('Error saving settings: ' + data.error);
         }
@@ -231,7 +645,12 @@ async function resetSettings() {
         output_format: 'mp3',
         crossfade_duration: 0.1,
         intro_silence_ms: 0,
-        inter_chunk_silence_ms: 0
+        inter_chunk_silence_ms: 0,
+        gemini_api_key: '',
+        gemini_model: 'gemini-1.5-flash',
+        gemini_prompt: '',
+        gemini_prompt_presets: [],
+        tts_engine: 'kokoro'
     };
     
     try {

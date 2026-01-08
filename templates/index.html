@@ -3,19 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kokoro-Story - Multi-Voice TTS</title>
+    <title>TTS-Story - Multi-Voice TTS</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2326324a'/%3E%3Cpath d='M18 22h6v20h-6zM28 22h6v20h-6zM38 22h6v20h-6z' fill='%23a78bfa'/%3E%3Ccircle cx='32' cy='16' r='4' fill='%23fcd34d'/%3E%3Ccircle cx='32' cy='48' r='4' fill='%23fcd34d'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="/static/css/style.css?v=9">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🎭 Kokoro-Story</h1>
+            <h1>🎭 TTS-Story</h1>
             <p>Multi-Voice Text-to-Speech for Stories and Audiobooks</p>
             <div class="status-bar">
                 <span id="mode-indicator">Mode: <strong id="current-mode">Loading...</strong></span>
                 <span id="cuda-indicator">CUDA: <strong id="cuda-status">Checking...</strong></span>
             </div>
+
         </header>
 
         <div class="tabs">
@@ -41,24 +42,68 @@
                     rows="15"
                 ></textarea>
                 
-                <div class="section default-voice-card">
+                <div class="section engine-select-card" style="margin-top: 20px;">
                     <div class="default-voice-header">
                         <div>
-                            <h3>🎤 Default Voice</h3>
-                            <p>Select a default voice for plain text or unassigned speakers.</p>
+                            <h3>⚙️ Engine & Voice</h3>
+                            <p>Pick your TTS engine and configure its default voice or reference prompt.</p>
                         </div>
                     </div>
-                    <div class="default-voice-controls">
-                        <div class="default-voice-select">
-                            <label for="default-voice-select">Default Voice</label>
-                            <select id="default-voice-select" class="voice-select">
-                                <option value="">Select Default Voice...</option>
+                    <div class="engine-select-grid" style="display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 10px;">
+                        <div class="form-group">
+                            <label for="job-tts-engine">Engine</label>
+                            <select id="job-tts-engine">
+                                <option value="kokoro">Kokoro · Local GPU</option>
+                                <option value="kokoro_replicate">Kokoro · Replicate</option>
+                                <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
+                                <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
                             </select>
                         </div>
-                        <div id="default-voice-fx-panel" class="voice-fx-panel voice-fx-inline" data-speaker="default"></div>
                     </div>
-                    <div class="default-voice-preview">
-                        <div id="default-voice-preview-slot" class="fx-preview-row"></div>
+                    <div id="kokoro-default-voice-card" class="engine-subcard kokoro-card">
+                        <div class="kokoro-header">
+                            <h3>🎤 Default Kokoro Voice</h3>
+                            <p>Select a default Kokoro voice for plain text or unassigned speakers.</p>
+                        </div>
+                        <div class="kokoro-controls">
+                            <div class="kokoro-main-controls">
+                                <select id="default-voice-select" class="voice-select kokoro-voice-dropdown">
+                                    <option value="">Select Default Voice...</option>
+                                </select>
+                                <div id="default-voice-fx-panel" class="voice-fx-panel voice-fx-inline kokoro-sliders" data-speaker="default"></div>
+                            </div>
+                            <div class="kokoro-test-area">
+                                <div id="default-voice-preview-slot"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="chatterbox-turbo-voice-card" class="engine-subcard" style="display: none;">
+                        <div class="default-voice-header">
+                            <div>
+                                <h2>Chatterbox Turbo</h2>
+                                <p class="help-text">Cloned reference prompts provide richer character control.</p>
+                            </div>
+                        </div>
+                        <div class="engine-options-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 10px;">
+                            <div class="form-group">
+                                <label for="chatterbox-reference-select">Reference Prompt</label>
+                                <div class="reference-select-row">
+                                    <select id="chatterbox-reference-select" data-meta-target="chatterbox-reference-details">
+                                        <option value="">Use preset voice</option>
+                                    </select>
+                                    <button type="button"
+                                            id="global-chatterbox-preview-btn"
+                                            class="btn btn-secondary btn-sm"
+                                            data-label-play="Play"
+                                            data-label-stop="Stop"
+                                            disabled>
+                                        Play
+                                    </button>
+                                </div>
+                                <small>Manage saved prompts in Available Voices → Chatterbox Voices.</small>
+                                <div class="help-text" id="chatterbox-reference-details"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -76,14 +121,47 @@
                             Also create a single full-length audiobook after chapter exports
                         </label>
                         <p class="help-text" style="margin-top: 6px;">
-                            When enabled, Kokoro-Story keeps the per-chapter files and adds one combined file to the library.
+                            When enabled, TTS-Story keeps the per-chapter files and adds one combined file to the library.
                         </p>
                     </div>
                 </div>
+
                 
-                <div class="button-group">
-                    <button id="gemini-process-btn" class="btn btn-secondary">Prep Text with Gemini</button>
-                    <button id="generate-btn" class="btn btn-primary">Generate Audio</button>
+                <div class="button-group generation-toolbar">
+                    <div class="generation-output-controls">
+                        <div class="compact-field" id="job-output-format-wrapper">
+                            <label for="job-output-format">Format</label>
+                            <select id="job-output-format" class="select-compact">
+                                <option value="mp3">MP3</option>
+                                <option value="wav">WAV</option>
+                                <option value="ogg">OGG</option>
+                            </select>
+                        </div>
+                        <div class="compact-field bitrate-field" id="job-output-bitrate-wrapper">
+                            <label for="job-output-bitrate">MP3 Bitrate</label>
+                            <select id="job-output-bitrate" class="select-compact">
+                                <option value="64">64 kbps</option>
+                                <option value="96">96 kbps</option>
+                                <option value="128">128 kbps</option>
+                                <option value="160">160 kbps</option>
+                                <option value="192">192 kbps</option>
+                                <option value="224">224 kbps</option>
+                                <option value="256">256 kbps</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="generation-buttons">
+                        <div class="gemini-preset-control">
+                            <label for="gemini-preset-select">Prompt Preset</label>
+                            <div class="gemini-preset-row">
+                                <select id="gemini-preset-select" class="select-compact">
+                                    <option value="">Use default prompt</option>
+                                </select>
+                                <button id="gemini-process-btn" class="btn btn-secondary">Prep Text with Gemini</button>
+                            </div>
+                        </div>
+                        <button id="generate-btn" class="btn btn-primary">Generate Audio</button>
+                    </div>
                 </div>
                 <p class="help-text" style="margin-top: 5px;">
                     ✨ Use <strong>Prep Text with Gemini</strong> to send the story (optionally split by chapters) through your configured Gemini prompt before generating audio.
@@ -218,30 +296,184 @@
                     <p class="help-text">Loading custom voices...</p>
                 </div>
             </div>
+
+            <div class="section" id="chatterbox-voices-section">
+                <div class="custom-voices-header">
+                    <div>
+                        <h2>Chatterbox Voices</h2>
+                        <p class="help-text">Upload Turbo reference clips (5–10s) and assign friendly names for reuse.</p>
+                    </div>
+                </div>
+                <form id="chatterbox-voice-form" class="chatterbox-voice-form">
+                    <div class="form-group">
+                        <label for="chatterbox-voice-name">Voice Name</label>
+                        <input type="text" id="chatterbox-voice-name" placeholder="e.g. Detective Rowan">
+                    </div>
+                    <div class="form-group">
+                        <label for="chatterbox-voice-file">Audio File</label>
+                        <input type="file" id="chatterbox-voice-file" accept=".wav,.mp3,.m4a,.flac,.ogg">
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Save Voice</button>
+                    </div>
+                </form>
+                <div class="chatterbox-dropzone" id="chatterbox-dropzone">
+                    <input type="file" id="chatterbox-dropzone-input" accept=".wav,.mp3,.m4a,.flac,.ogg" multiple>
+                    <div class="dropzone-content">
+                        <h3>Bulk import via drag & drop</h3>
+                        <p>Drop multiple WAV/MP3 clips (5–10s). We’ll keep any clips ≥5s and name them after the file.</p>
+                        <button type="button" class="btn btn-secondary btn-sm">Browse Files</button>
+                    </div>
+                    <div class="dropzone-status" id="chatterbox-dropzone-status"></div>
+                </div>
+                <div id="chatterbox-voice-list" class="chatterbox-voice-list">
+                    <p class="help-text">No saved voices yet. Add one above.</p>
+                </div>
+            </div>
         </div>
 
         <!-- Settings Tab -->
         <div id="settings-tab" class="tab-content">
             <div class="section">
-                <h2>Processing Mode</h2>
+                <h2>Defaults</h2>
+                <p class="help-text">
+                    Pick the engine, file format, and MP3 bitrate that load every time TTS-Story starts. You can still override them per job on the Generate tab.
+                </p>
+                <div class="defaults-grid">
+                    <div class="form-group">
+                        <label for="settings-tts-engine">Default Engine</label>
+                        <select id="settings-tts-engine">
+                            <option value="kokoro">Kokoro · Local GPU</option>
+                            <option value="kokoro_replicate">Kokoro · Replicate</option>
+                            <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
+                            <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="settings-output-format">Default File Format</label>
+                        <select id="settings-output-format">
+                            <option value="mp3">MP3</option>
+                            <option value="wav">WAV</option>
+                            <option value="ogg">OGG</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="settings-output-bitrate">Default MP3 Bitrate</label>
+                        <select id="settings-output-bitrate">
+                            <option value="64">64 kbps</option>
+                            <option value="96">96 kbps</option>
+                            <option value="128">128 kbps</option>
+                            <option value="160">160 kbps</option>
+                            <option value="192">192 kbps</option>
+                            <option value="224">224 kbps</option>
+                            <option value="256">256 kbps</option>
+                        </select>
+                        <small>Only used when the default format is MP3.</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section" id="replicate-settings">
+                <h2>Replicate API</h2>
+                <p class="help-text">
+                    Configure your Replicate API token for cloud-based TTS. This token is used by both <strong>Kokoro · Replicate</strong> and <strong>Chatterbox · Replicate</strong> engines.
+                </p>
                 <div class="form-group">
-                    <label>
-                        <input type="radio" name="mode" value="local" checked>
-                        Local GPU (Requires Kokoro installed)
+                    <label for="kokoro-replicate-api-key">Replicate API Token</label>
+                    <input type="password" id="kokoro-replicate-api-key" placeholder="r8_..." autocomplete="new-password">
+                    <small>Get your API key from <a href="https://replicate.com" target="_blank">replicate.com</a></small>
+                </div>
+            </div>
+
+            <div class="section" id="chatterbox-turbo-local-settings" style="display: none;">
+                <h2>Chatterbox · Local GPU</h2>
+                <p class="help-text">
+                    Runs the open-source Chatterbox model locally (installed via <code>setup.bat</code>). Requires a CUDA-capable GPU with ~8GB VRAM.
+                </p>
+                <div class="form-group">
+                    <label for="chatterbox-turbo-local-device">Preferred Device</label>
+                    <input type="text" id="chatterbox-turbo-local-device" placeholder="auto, cuda, cuda:1, cpu">
+                    <small>Leave blank for auto-detect (CUDA if available).</small>
+                </div>
+                <div class="form-group">
+                    <label for="chatterbox-turbo-local-prompt">Default Reference Prompt</label>
+                    <input type="text" id="chatterbox-turbo-local-prompt" placeholder="data/voice_prompts/default.wav">
+                    <small>Path to a 5–10s WAV/MP3 clip used when speakers do not supply their own prompt.</small>
+                </div>
+                <div class="three-column-grid">
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-local-temperature">Temperature</label>
+                        <input type="number" id="chatterbox-turbo-local-temperature" min="0.05" max="2" step="0.05">
+                    </div>
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-local-top-p">Top P</label>
+                        <input type="number" id="chatterbox-turbo-local-top-p" min="0.1" max="1" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-local-top-k">Top K</label>
+                        <input type="number" id="chatterbox-turbo-local-top-k" min="1" max="4000" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-local-rep-penalty">Repetition Penalty</label>
+                        <input type="number" id="chatterbox-turbo-local-rep-penalty" min="1" max="2" step="0.05">
+                    </div>
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-local-cfg-weight">CFG Weight</label>
+                        <input type="number" id="chatterbox-turbo-local-cfg-weight" min="0" max="2" step="0.05">
+                    </div>
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-local-exaggeration">Exaggeration</label>
+                        <input type="number" id="chatterbox-turbo-local-exaggeration" min="0" max="2" step="0.05">
+                    </div>
+                </div>
+                <div class="form-group checkbox-group">
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="chatterbox-turbo-local-norm">
+                        Normalize output loudness
                     </label>
-                    <label>
-                        <input type="radio" name="mode" value="replicate">
-                        Replicate API (Cloud-based)
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="chatterbox-turbo-local-prompt-norm">
+                        Normalize prompt loudness before embedding
                     </label>
                 </div>
             </div>
 
-            <div class="section" id="replicate-settings" style="display: none;">
-                <h2>Replicate API Settings</h2>
+            <div class="section" id="chatterbox-turbo-replicate-settings" style="display: none;">
+                <h2>Chatterbox · Replicate</h2>
+                <p class="help-text">
+                    Calls the hosted Chatterbox model on Replicate (<code>resemble-ai/chatterbox-turbo</code>). Uses the same Replicate API token configured in the Kokoro · Replicate section above.
+                </p>
                 <div class="form-group">
-                    <label for="api-key">API Key</label>
-                    <input type="password" id="api-key" placeholder="r8_...">
-                    <small>Get your API key from <a href="https://replicate.com" target="_blank">replicate.com</a></small>
+                    <label for="chatterbox-turbo-replicate-model">Model Version</label>
+                    <input type="text" id="chatterbox-turbo-replicate-model" placeholder="resemble-ai/chatterbox-turbo:95c8...">
+                </div>
+                <div class="form-group">
+                    <label for="chatterbox-turbo-replicate-voice">Default Voice Preset</label>
+                    <input type="text" id="chatterbox-turbo-replicate-voice" placeholder="Andy, Madison, ...">
+                    <small>Used when a speaker does not provide their own reference audio.</small>
+                </div>
+                <div class="three-column-grid">
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-replicate-temperature">Temperature</label>
+                        <input type="number" id="chatterbox-turbo-replicate-temperature" min="0.05" max="2" step="0.05">
+                    </div>
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-replicate-top-p">Top P</label>
+                        <input type="number" id="chatterbox-turbo-replicate-top-p" min="0.1" max="1" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-replicate-top-k">Top K</label>
+                        <input type="number" id="chatterbox-turbo-replicate-top-k" min="1" max="2000" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-replicate-rep-penalty">Repetition Penalty</label>
+                        <input type="number" id="chatterbox-turbo-replicate-rep-penalty" min="1" max="2" step="0.05">
+                    </div>
+                    <div class="form-group">
+                        <label for="chatterbox-turbo-replicate-seed">Seed (optional)</label>
+                        <input type="number" id="chatterbox-turbo-replicate-seed" min="0" step="1">
+                        <small>Leave blank for random seeds.</small>
+                    </div>
                 </div>
             </div>
 
@@ -276,6 +508,26 @@
                     <textarea id="gemini-prompt" rows="4" placeholder="Provide direction that Gemini should follow before each chapter."></textarea>
                     <small>This prompt is prepended before each chapter's text. Leave blank to send the raw chapter.</small>
                 </div>
+                <div class="form-group">
+                    <label>Prompt Presets</label>
+                    <p class="help-text">Create named prompt prefixes you can quickly pick on the Generate tab.</p>
+                    <div id="gemini-preset-list" class="gemini-preset-list" data-empty-text="No prompt presets yet. Save one below."></div>
+                    <div class="gemini-preset-form">
+                        <div class="compact-field">
+                            <label for="gemini-preset-title">Preset Title</label>
+                            <input id="gemini-preset-title" type="text" placeholder="e.g., Friendly Narrator Cleanup">
+                        </div>
+                        <div class="compact-field">
+                            <label for="gemini-preset-text">Prompt Prefix</label>
+                            <textarea id="gemini-preset-text" rows="3" placeholder="Full instructions that should precede the chapter text."></textarea>
+                        </div>
+                        <div class="gemini-preset-form-actions">
+                            <button type="button" id="save-gemini-preset-btn" class="btn btn-primary btn-sm">Save Preset</button>
+                            <button type="button" id="reset-gemini-preset-btn" class="btn btn-ghost btn-sm">Clear</button>
+                        </div>
+                        <p class="help-text" id="gemini-preset-form-hint">Fill both fields to create a new preset, or choose one above and click Edit to update it.</p>
+                    </div>
+                </div>
             </div>
 
             <div class="section">
@@ -284,20 +536,12 @@
                     <label for="chunk-size">Chunk Size (words)</label>
                     <input type="number" id="chunk-size" value="500" min="100" max="1000" step="50">
                     <small>Smaller chunks = more API calls but better memory usage</small>
+                </div>
 
                 <div class="form-group">
                     <label for="speed">Speech Speed</label>
                     <input type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0">
                     <span id="speed-value">1.0x</span>
-                </div>
-
-                <div class="form-group">
-                    <label for="output-format">Output Format</label>
-                    <select id="output-format">
-                        <option value="mp3">MP3</option>
-                        <option value="wav">WAV</option>
-                        <option value="ogg">OGG</option>
-                    </select>
                 </div>
 
                 <div class="form-group">
@@ -322,6 +566,22 @@
             <div class="button-group">
                 <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
                 <button id="reset-settings-btn" class="btn btn-secondary">Reset to Defaults</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="chunk-review-modal-overlay">
+        <div class="modal hidden" id="chunk-review-modal" style="max-width: 900px; width: 95%;">
+            <div class="modal-header">
+                <h3 id="chunk-review-modal-title">Review Chunks</h3>
+                <button class="modal-close" id="chunk-review-modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="chunk-review-modal-body">
+                <div class="chunk-review-loading">Loading chunks...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="chunk-review-close-btn">Close</button>
+                <button class="btn btn-primary" id="chunk-review-recompile-btn" disabled>Recompile Audio</button>
             </div>
         </div>
     </div>
@@ -372,10 +632,10 @@
         </div>
     </div>
 
-    <script src="/static/js/main.js?v=16"></script>
+    <script src="/static/js/main.js?v=17"></script>
     <script src="/static/js/queue.js?v=2"></script>
     <script src="/static/js/library.js?v=6"></script>
-    <script src="/static/js/voice-manager.js?v=6"></script>
+    <script src="/static/js/voice-manager.js?v=7"></script>
     <script src="/static/js/settings.js?v=6"></script>
 </body>
 </html>

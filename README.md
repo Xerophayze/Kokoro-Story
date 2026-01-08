@@ -1,6 +1,6 @@
-# Kokoro-Story
+# TTS-Story
 
-A web-based Text-to-Speech application powered by Kokoro-82M, supporting both local GPU inference and Replicate API for generating multi-voice audiobooks and stories.
+A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M** and **Chatterbox**, with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.
 
 <div align="center">
   <table>
@@ -43,29 +43,47 @@ A web-based Text-to-Speech application powered by Kokoro-82M, supporting both lo
 
 ## Features
 
-- 🎭 **Multi-Voice Support**: Use Kokoro-82M voices for any number of characters in your story
-- 🧪 **Custom Voice Blending**: Mix any combination of Kokoro voices with weighted ratios to create reusable “custom_*” voice codes without touching the command line
-- 🔊 **Speaker Tags & Auto Detection**: Automatically parse `[speaker1]...[/speaker1]` or `[alice]...[/alice]` tags, normalize casing, and keep a live registry of every speaker for quick voice assignment
-- 🤖 **Gemini Pre-Processing**: Automatically decides between whole-text or chapter-based Gemini runs. When chapter splitting is enabled, each chapter is sent as its own Gemini request with speaker-memory context; otherwise the entire story plus your pre-prompt goes as one request.
-- 🧠 **Speaker Memory Between Chunks**: Gemini requests carry forward the list of already-discovered speaker tags so later chunks keep the same character names (e.g., "Elora" stays "Elora" instead of becoming "Commander Elora")
-- 🖥️ **Local GPU Processing**: Run Kokoro-82M locally on your NVIDIA GPU for privacy and speed
-- ☁️ **Cloud API Option**: Use Replicate API when you don’t have local GPU resources
-- 📝 **Smart Text Chunking**: Automatically splits long texts into manageable chunks
-- 🎵 **Seamless Audio Merging**: Merges chunks into a single file with configurable crossfade
-- 🔇 **Intro & Inter-Segment Silence Controls**: Dial in precise empty space before the first line and between chunks directly from the UI
-- 📥 **Job Queue**: Submit multiple jobs, track status, cancel, and download results
-- 📊 **Job Queue Tab**: Dedicated UI to monitor all jobs in real time
-- 📚 **Audio Library**: Browsable list of all completed outputs with inline players and delete/clear, backed by smart caching to keep the tab snappy even with large libraries
-- 🅰️ **Available Voices & Previews**: Browse all Kokoro voices, generate preview samples, and click to listen
-- � **Chapter Collections + Full Audiobook**: Toggle per-chapter outputs and optionally create a single combined audiobook alongside the chapter files
-- �🔁 **Sample Generation**: Generate or regenerate missing previews with a single button
-- 🎛️ **Configurable Settings**: Control mode (local/Replicate), speed, chunk size, output format, crossfade
-- ⚙️ **Dynamic Gemini Controls**: Save your Gemini API key, fetch the latest available Gemini models on demand, and reuse your preferred model across sessions
-- 🌐 **Web Interface**: Modern single-page UI built with Flask and vanilla JS
+### TTS Engines
+- **Multi-Engine Support**: Choose from four TTS engine options:
+  - **Kokoro · Local GPU** - Run Kokoro-82M locally on your NVIDIA GPU
+  - **Kokoro · Replicate** - Use Kokoro via Replicate cloud API
+  - **Chatterbox · Local GPU** - Run Chatterbox locally with voice cloning (~8GB VRAM required)
+  - **Chatterbox · Replicate** - Use Chatterbox via Replicate cloud API (`resemble-ai/chatterbox-turbo`)
+- **Unified Replicate API**: Single API token works for both Kokoro and Chatterbox Replicate engines
+- **Chatterbox Voice Cloning**: Upload your own voice recordings (10-15 seconds recommended) to clone any voice
+- **Chatterbox Voice Management**: Add, rename, delete, and preview custom voice prompts with drag-and-drop bulk upload
+
+### Voice & Audio
+- **Multi-Voice Support**: Use Kokoro-82M voices for any number of characters in your story
+- **Custom Voice Blending**: Mix any combination of Kokoro voices with weighted ratios to create reusable "custom_*" voice codes
+- **Speaker Tags & Auto Detection**: Automatically parse `[speaker1]...[/speaker1]` or `[alice]...[/alice]` tags
+- **Smart Text Chunking**: Automatically splits long texts into manageable chunks
+- **Seamless Audio Merging**: Merges chunks into a single file with configurable crossfade
+- **Intro & Inter-Segment Silence Controls**: Dial in precise empty space before the first line and between chunks
+
+### AI & Processing
+- **Gemini Pre-Processing**: Automatically decides between whole-text or chapter-based Gemini runs with speaker-memory context
+- **Speaker Memory Between Chunks**: Gemini requests carry forward discovered speaker tags for consistency
+- **Local GPU Processing**: Run entirely on your machine for privacy and speed
+- **Cloud API Option**: Use Replicate API when you don't have local GPU resources
+
+### Job Management & Library
+- **Job Queue**: Submit multiple jobs, track real-time progress with ETA, cancel, and download results
+- **Job Queue Tab**: Dedicated UI to monitor all jobs with progress bars and chunk counts
+- **Audio Library**: Browsable list of all completed outputs with inline players, **engine indicator** showing which TTS engine was used, and delete/clear controls
+- **Chapter Collections + Full Audiobook**: Toggle per-chapter outputs and optionally create a single combined audiobook
+
+### UI & Configuration
+- **Available Voices & Previews**: Browse all Kokoro voices grouped by language, generate preview samples
+- **Configurable Settings**: Control TTS engine, speed, chunk size, output format, bitrate, crossfade
+- **Dynamic Gemini Controls**: Save your Gemini API key, fetch the latest available Gemini models on demand
+- **Web Interface**: Modern single-page UI built with Flask and vanilla JS
 
 ## Available Voices
 
-Kokoro-Story exposes the full Kokoro-82M voice set, grouped by language.
+### Kokoro Voices
+
+TTS-Story exposes the full Kokoro-82M voice set, grouped by language.
 
 ### American English 🇺🇸 (lang_code `a`)
 - Female: `af_alloy`, `af_aoede`, `af_bella`, `af_heart`, `af_jessica`, `af_kore`, `af_nicole`, `af_nova`, `af_river`, `af_sarah`, `af_sky`
@@ -95,6 +113,19 @@ Kokoro-Story exposes the full Kokoro-82M voice set, grouped by language.
 
 All of these voices are browsable in the **Available Voices** tab, where you can generate and play preview samples.
 
+### Chatterbox Voices
+
+Chatterbox supports voice cloning from audio recordings. To add custom voices:
+
+1. Go to the **Available Voices** tab and scroll to the **Chatterbox Available Voices** section
+2. Upload a voice recording (WAV, MP3, M4A, FLAC, or OGG format)
+   - **Recommended duration**: 10-15 seconds of clear speech
+   - Avoid background noise for best results
+3. Give the voice a descriptive name and click **Save Voice**
+4. Your custom voices appear in all Chatterbox voice dropdowns, sorted alphabetically
+
+You can also drag-and-drop multiple audio files for bulk upload. Each voice can be previewed, renamed, or deleted from the management interface.
+
 ## Installation
 
 ### Prerequisites
@@ -107,7 +138,7 @@ All of these voices are browsable in the **Available Voices** tab, where you can
 1. **Clone or download the repository**
 ```bash
 git clone <your-repo-url>
-cd Kokoro-Story
+cd TTS-Story
 ```
 
 2. **Run the setup script**
@@ -179,33 +210,61 @@ python app.py
 
 ## Usage
 
-### Local GPU Mode
+### Selecting a TTS Engine
+
+TTS-Story supports four TTS engine options. In the **Settings** tab, choose your preferred default engine:
+
+| Engine | Description | Requirements |
+|--------|-------------|--------------|
+| **Kokoro · Local GPU** | Run Kokoro-82M locally | NVIDIA GPU with CUDA |
+| **Kokoro · Replicate** | Kokoro via cloud API | Replicate API token |
+| **Chatterbox · Local GPU** | Chatterbox with voice cloning | NVIDIA GPU (~8GB VRAM) |
+| **Chatterbox · Replicate** | Chatterbox via cloud API | Replicate API token |
+
+You can also override the engine per-job in the **Generate** tab.
+
+### Basic Workflow
 
 1. Open your browser to `http://localhost:5000`
-2. In **Settings**, select **Local GPU** as the processing mode
-3. Paste your text with or without speaker tags
-4. In the **Generate** tab, select a **Default Voice** (used for plain text / unassigned speakers)
-5. If you use speaker tags, Kokoro-Story automatically analyzes the text and lets you assign voices per speaker
-6. Click **Generate Audio**
-7. The job is added to the **Job Queue**, processed in the background, and the result appears in both:
-   - **Job Queue** tab (with status and player)
-   - **Library** tab (all past generations)
-   - **Latest Audio** section on the **Generate** tab (most recent completed job)
-8. When "Generate separate audio files for each chapter" is on, you can also enable "Also create a single full-length audiobook" so the Library presents both individual chapters and a combined ZIP/full download.
-9. Voice assignments, tone/pitch settings, and detected speakers stay exactly as-is after job submission. Use the “Reset Assignments” button if you ever want to clear them manually.
+2. In **Settings**, select your preferred TTS engine
+3. If using Replicate engines, enter your API token in the **Replicate API** section
+4. Paste your text with or without speaker tags in the **Generate** tab
+5. Select a **Default Voice** (used for plain text / unassigned speakers)
+6. If you use speaker tags, TTS-Story automatically analyzes the text and lets you assign voices per speaker
+7. Click **Generate Audio**
+8. The job is added to the **Job Queue**, processed in the background, and the result appears in:
+   - **Job Queue** tab (with real-time progress, ETA, and player)
+   - **Library** tab (all past generations with engine indicator)
+
+### Using Chatterbox Voice Cloning
+
+When using a Chatterbox engine:
+
+1. First, add voice recordings in **Available Voices → Chatterbox Available Voices**
+2. In the **Generate** tab, select your cloned voice from the **Reference Voice** dropdown
+3. Each speaker can use a different cloned voice for multi-character stories
 
 ### Quick Test Previews
 
-- A shared “Quick Test Text” field lives above the Assigned Voices section so you can type once and preview any speaker with matching FX.
-- Each speaker row includes an inline Quick Test button beside the tone controls; the default voice panel keeps its own per-voice preview textarea so you can audition narrator tweaks independently.
+- A shared "Quick Test Text" field lives above the Assigned Voices section so you can type once and preview any speaker with matching FX.
+- Each speaker row includes an inline Quick Test button beside the tone controls.
 
-**Note:** Local GPU mode runs entirely on your machine and never uses the Replicate API, ensuring complete privacy and no API costs.
+**Note:** Local GPU modes run entirely on your machine and never use cloud APIs, ensuring complete privacy and no API costs.
 
-### Replicate API Mode
+### Silence & Timing Controls
 
-1. Get your API key from [Replicate](https://replicate.com)
-2. In Settings, select "Replicate API" and enter your API key
-3. Follow the same steps as Local GPU mode
+- **Intro Silence (ms):** Adds empty space before the very first spoken line
+- **Silence Between Segments (ms):** Inserts a gap after each chunk/line before the next one begins
+- Both settings are configurable in the **Generation Settings** panel (0–2000 ms, 100 ms steps)
+
+### Replicate API Setup
+
+Both Kokoro · Replicate and Chatterbox · Replicate use the same API token:
+
+1. Get your API key from [Replicate](https://replicate.com) (starts with `r8_...`)
+2. In **Settings**, enter your token in the **Replicate API** section
+3. Click **Save Settings**
+4. Select either Replicate engine from the dropdown
 
 ### Speaker Tag Format
 
@@ -233,15 +292,28 @@ You can use any alphanumeric name (letters, numbers, underscores). The system wi
 Need to tidy a manuscript or add consistent speaker tags before running TTS? Use the **Prep Text with Gemini** button:
 
 1. Enter your Gemini API key and model in **Settings**, then click **Fetch Available Models** if you want to load the latest list directly from Google.
-2. Paste your story in the **Generate** tab and decide whether “Generate separate audio files for each chapter” should be enabled.
-3. Click **Prep Text with Gemini**:
-   - If chapter splitting is enabled, Kokoro-Story reuses the detected chapter list and sends each one to Gemini separately with your pre-prompt and the running speaker list.
+2. Paste your story in the **Generate** tab and decide whether "Generate separate audio files for each chapter" should be enabled.
+3. Select a **Prompt Preset** (see below) or write your own custom prompt.
+4. Click **Prep Text with Gemini**:
+   - If chapter splitting is enabled, TTS-Story reuses the detected chapter list and sends each one to Gemini separately with your pre-prompt and the running speaker list.
    - If chapter splitting is disabled, the whole manuscript (plus pre-prompt) is sent in a single Gemini request to respect the context window.
    - A real-time progress bar shows which chapter or full-text step is running.
-4. When Gemini finishes, the cleaned/expanded narrative replaces the input field. Chapter headings stay inside the narrator tags so audio splitting still works.
-5. Re-run **Analyze Text** if needed. Your voice assignments and FX settings remain untouched unless you explicitly reset them.
+5. When Gemini finishes, the cleaned/expanded narrative replaces the input field. Chapter headings stay inside the narrator tags so audio splitting still works.
+6. Re-run **Analyze Text** if needed. Your voice assignments and FX settings remain untouched unless you explicitly reset them.
 
 Because the speaker list is tracked across sections, characters that appear later continue to use the same tag, which keeps the voice assignment UI tidy and prevents duplicate dropdowns.
+
+#### Pre-loaded Prompt Presets
+
+TTS-Story includes three pre-configured Gemini prompt presets optimized for different use cases:
+
+| Preset | Best For | Description |
+|--------|----------|-------------|
+| **Chatterbox Natural Dialogue Conversation** | Chatterbox engines | Transforms text into natural-sounding dialogue with paralinguistic tags (laughter, sighs, pauses) and human speech quirks. Ideal for conversational content where you want expressive, lifelike output. |
+| **Chatterbox Audio Book Conversion** | Chatterbox engines | Maintains strict adherence to the original text while converting symbols and abbreviations that TTS engines struggle with into speakable words (e.g., "/" → "slash", "-" → "dash", "Dr." → "Doctor"). |
+| **Kokoro Audio Book Conversion** | Kokoro engines | Preserves the exact text of the book while adding speaker tags and preparing the content for TTS conversion. Focuses on accurate speaker identification and proper text segmentation without modifying the original prose. |
+
+Select a preset from the dropdown in the Gemini section, or create your own custom prompts and save them for reuse.
 
 ### Plain Text Mode
 
@@ -249,11 +321,16 @@ If no speaker tags are found, the entire text will be processed with a single vo
 
 ### Job Queue & Library
 
-- **Job Queue** tab shows all jobs, their status (`queued`, `processing`, `completed`, `failed`, `cancelled`), and provides per-job controls.
+- **Job Queue** tab shows all jobs with:
+  - Real-time progress bars and chunk counts
+  - ETA estimates during processing
+  - Status indicators (`queued`, `processing`, `completed`, `failed`, `cancelled`)
+  - Per-job controls (cancel, download)
 - **Library** tab lists all completed outputs (sorted newest first) with:
+  - **Engine indicator** showing which TTS engine was used (Kokoro, Kokoro Replicate, Chatterbox, Chatterbox Replicate)
   - Inline audio players
   - Download links
-  - Delete and “Clear All” controls
+  - Delete and "Clear All" controls
 
 ### Available Voices & Previews
 
@@ -285,32 +362,55 @@ Settings are stored in `config.json`:
 
 ```json
 {
-  "mode": "local",
   "replicate_api_key": "",
   "chunk_size": 500,
   "sample_rate": 24000,
   "speed": 1.0,
   "output_format": "mp3",
-  "crossfade_duration": 0.1
+  "output_bitrate_kbps": 128,
+  "crossfade_duration": 0.1,
+  "intro_silence_ms": 0,
+  "inter_chunk_silence_ms": 0,
+  "tts_engine": "kokoro",
+  "chatterbox_turbo_local_device": "auto",
+  "chatterbox_turbo_local_temperature": 0.8,
+  "chatterbox_turbo_replicate_model": "resemble-ai/chatterbox-turbo",
+  "gemini_api_key": "",
+  "gemini_model": "gemini-2.0-flash"
 }
 ```
+
+### TTS Engine Options
+
+| Value | Description |
+|-------|-------------|
+| `kokoro` | Kokoro-82M local GPU inference |
+| `kokoro_replicate` | Kokoro via Replicate cloud API |
+| `chatterbox_turbo_local` | Chatterbox local GPU with voice cloning |
+| `chatterbox_turbo_replicate` | Chatterbox via Replicate cloud API |
+
+Any settings you override in the Generate tab (format, bitrate, engine) are sent along with the job payload while keeping the saved defaults intact.
 
 ## Project Structure
 
 ```
-Kokoro-Story/
+TTS-Story/
 ├── app.py                 # Flask web server
 ├── requirements.txt       # Python dependencies
 ├── setup.bat             # Windows setup script
 ├── run.bat               # Windows run script
 ├── config.json           # Configuration file
 ├── src/
-│   ├── tts_engine.py     # Local TTS processing
-│   ├── replicate_api.py  # Replicate API integration
+│   ├── tts_engine.py     # TTS engine registry and factory
+│   ├── replicate_api.py  # Replicate API integration (Kokoro)
 │   ├── text_processor.py # Text chunking and parsing
 │   ├── audio_merger.py   # Audio file merging
 │   ├── voice_manager.py  # Voice configuration and preview sample metadata
-│   └── voice_sample_generator.py # Batch generation of voice preview samples
+│   ├── voice_sample_generator.py # Batch generation of voice preview samples
+│   └── engines/
+│       ├── kokoro_engine.py              # Kokoro-82M local engine
+│       ├── chatterbox_turbo_local_engine.py    # Chatterbox local GPU engine
+│       └── chatterbox_turbo_replicate_engine.py # Chatterbox Replicate engine
 ├── static/
 │   ├── css/
 │   │   └── style.css
@@ -322,6 +422,8 @@ Kokoro-Story/
 │   │   └── settings.js
 │   ├── audio/            # Generated audio files (per-job subdirectories)
 │   └── samples/          # Voice preview samples and manifest.json
+├── data/
+│   └── voice_prompts/    # Chatterbox voice recordings for cloning
 └── templates/
     └── index.html        # Web interface
 ```
@@ -329,7 +431,7 @@ Kokoro-Story/
 ## API Endpoints
 
 - `GET /` - Main web interface
-- `GET /api/health` - Health check (mode, Kokoro availability, CUDA status)
+- `GET /api/health` - Health check (TTS engine, Kokoro availability, CUDA status)
 - `GET /api/voices` - Get available voices and preview sample status
 - `POST /api/voices/samples` - Generate or regenerate voice preview samples
 - `GET /api/settings` - Get current settings
@@ -352,21 +454,36 @@ Kokoro-Story/
 - `GET /api/custom-voices/<voice_id>` - Retrieve a specific custom voice (ID or `custom_` code)
 - `PUT /api/custom-voices/<voice_id>` - Update an existing custom voice blend
 - `DELETE /api/custom-voices/<voice_id>` - Delete a custom voice and invalidate cached tensors
+- `GET /api/chatterbox-voices` - List saved Chatterbox voice prompts
+- `POST /api/chatterbox-voices` - Upload a new Chatterbox voice prompt
+- `PUT /api/chatterbox-voices/<voice_id>` - Rename a Chatterbox voice
+- `DELETE /api/chatterbox-voices/<voice_id>` - Delete a Chatterbox voice
+- `GET /api/chatterbox-voices/<voice_id>/preview` - Preview a Chatterbox voice
 
 ## Performance
 
-### Local GPU (NVIDIA RTX 3090)
+### Kokoro · Local GPU (NVIDIA RTX 3090)
 - ~2 seconds per chunk (500 words)
 - No API costs
 - Full privacy
 
-### Replicate API
+### Kokoro · Replicate
 - ~2-3 seconds per chunk (varies by input)
 - Cost varies by usage
 - No GPU required
 - Model: [jaaari/kokoro-82m](https://replicate.com/jaaari/kokoro-82m)
-- Supports automatic text splitting for long-form content
-- Over 52M runs - highly reliable
+
+### Chatterbox · Local GPU
+- Requires ~8GB VRAM
+- Voice cloning from 10-15 second audio samples
+- No API costs
+- Full privacy
+
+### Chatterbox · Replicate
+- Voice cloning via cloud API
+- Model: [resemble-ai/chatterbox-turbo](https://replicate.com/resemble-ai/chatterbox-turbo)
+- Cost varies by usage
+- No GPU required
 
 ## Troubleshooting
 
@@ -374,7 +491,7 @@ Kokoro-Story/
 Make sure espeak-ng is installed and in your PATH.
 
 ### CUDA out of memory
-Reduce chunk_size in settings or use Replicate API mode.
+Reduce chunk_size in settings or use a Replicate engine instead of local GPU.
 
 ### Audio quality issues
 Adjust the speed parameter (0.5 - 2.0) in settings.
@@ -386,6 +503,7 @@ Apache 2.0 - Same as Kokoro-82M
 ## Credits
 
 - [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad
+- [Chatterbox](https://github.com/resemble-ai/chatterbox) by Resemble AI
 - [StyleTTS2](https://github.com/yl4579/StyleTTS2) by yl4579
 - [Replicate](https://replicate.com) for cloud API
 

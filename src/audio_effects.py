@@ -1,5 +1,5 @@
 """
-Lightweight post-processing utilities for Kokoro-Story audio output.
+Lightweight post-processing utilities for TTS-Story audio output.
 """
 from __future__ import annotations
 
@@ -32,7 +32,6 @@ class VoiceFXSettings:
     """Container for user-defined post-processing controls."""
 
     pitch_semitones: float = 0.0
-    tempo: float = 1.0
     tone: str = "neutral"  # neutral | warm | bright
 
     @classmethod
@@ -45,25 +44,23 @@ class VoiceFXSettings:
             return None
 
         pitch = float(payload.get("pitch", 0.0) or 0.0)
-        tempo = float(payload.get("tempo", 1.0) or 1.0)
         tone = (payload.get("tone") or "neutral").strip().lower()
         if tone not in {"neutral", "warm", "bright"}:
             tone = "neutral"
 
-        tempo = max(0.75, min(tempo, 1.35))
         pitch = max(-6.0, min(pitch, 6.0))
 
-        if abs(pitch) < 1e-3 and abs(tempo - 1.0) < 1e-3 and tone == "neutral":
+        if abs(pitch) < 1e-3 and tone == "neutral":
             return None
 
-        return cls(pitch_semitones=pitch, tempo=tempo, tone=tone)
+        return cls(pitch_semitones=pitch, tone=tone)
 
 
 logger = logging.getLogger(__name__)
 
 
 class AudioPostProcessor:
-    """Applies pitch, tempo, and tonal shaping to generated audio arrays."""
+    """Applies pitch and tonal shaping to generated audio arrays."""
 
     def apply(self, audio: np.ndarray, sample_rate: int, fx: Optional[VoiceFXSettings]) -> np.ndarray:
         if audio is None or fx is None:
@@ -74,9 +71,6 @@ class AudioPostProcessor:
 
         if math.isfinite(fx.pitch_semitones) and abs(fx.pitch_semitones) > 1e-3:
             processed = self._apply_pitch(processed, sample_rate, fx.pitch_semitones)
-
-        if math.isfinite(fx.tempo) and abs(fx.tempo - 1.0) > 1e-3:
-            processed = self._apply_tempo(processed, sample_rate, fx.tempo)
 
         if fx.tone and fx.tone != "neutral":
             processed = self._apply_tone(processed, sample_rate, fx.tone)
@@ -91,11 +85,7 @@ class AudioPostProcessor:
     def _compute_blend_mix(fx: VoiceFXSettings) -> float:
         if fx is None:
             return 0.0
-        if abs(fx.tempo - 1.0) > 0.01:
-            return 0.0
-        severity_pitch = min(abs(fx.pitch_semitones) / 3.0, 1.0)
-        severity_tempo = min(abs(fx.tempo - 1.0) / 0.15, 1.0)
-        severity = max(severity_pitch, severity_tempo)
+        severity = min(abs(fx.pitch_semitones) / 3.0, 1.0)
         if fx.tone != "neutral":
             severity = min(1.0, severity + 0.15)
         return max(0.0, 0.2 * (1.0 - severity))
@@ -127,17 +117,6 @@ class AudioPostProcessor:
                 stretched,
             )
         return stretched.astype(np.float32, copy=False)
-
-    @staticmethod
-    def _apply_tempo(audio: np.ndarray, sample_rate: int, rate: float) -> np.ndarray:
-        rate = max(0.5, min(rate, 1.5))
-        AudioPostProcessor._require_librosa("tempo")
-        if pyrb is not None:
-            try:
-                return pyrb.time_stretch(audio, sample_rate, rate).astype(np.float32)
-            except Exception as exc:  # pragma: no cover - graceful degradation
-                logger.warning("Rubber Band time_stretch failed (%s); falling back to librosa", exc)
-        return librosa.effects.time_stretch(audio, rate=rate)
 
     @staticmethod
     def _apply_tone(audio: np.ndarray, sample_rate: int, profile: str) -> np.ndarray:

@@ -4,7 +4,7 @@ Audio Merger - Combines audio chunks into single file
 import logging
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from pydub import AudioSegment
 import soundfile as sf
 import numpy as np
@@ -18,6 +18,7 @@ class AudioMerger:
         crossfade_ms: int = 100,
         intro_silence_ms: int = 0,
         inter_chunk_silence_ms: int = 0,
+        bitrate_kbps: Optional[int] = None,
     ):
         """
         Initialize audio merger
@@ -30,6 +31,9 @@ class AudioMerger:
         self.crossfade_ms = crossfade_ms
         self.intro_silence_ms = max(0, intro_silence_ms)
         self.inter_chunk_silence_ms = max(0, inter_chunk_silence_ms)
+        self.bitrate_kbps = None
+        if bitrate_kbps:
+            self.bitrate_kbps = max(32, min(int(bitrate_kbps), 512))
         
     def merge_wav_files(
         self,
@@ -78,7 +82,10 @@ class AudioMerger:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        combined.export(str(output_path), format=format)
+        export_kwargs = {}
+        if self.bitrate_kbps and format.lower() == "mp3":
+            export_kwargs["bitrate"] = f"{self.bitrate_kbps}k"
+        combined.export(str(output_path), format=format, **export_kwargs)
         logging.info(f"Merged audio saved to {output_path}")
         
         # Cleanup WAV chunks if requested
