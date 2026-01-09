@@ -2,44 +2,7 @@
 
 A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M** and **Chatterbox**, with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.
 
-<div align="center">
-  <table>
-    <tr>
-      <td>
-        <a href="https://github.com/user-attachments/assets/87938f62-567b-4041-af60-921340415ab8" target="_blank">
-          <img src="https://github.com/user-attachments/assets/87938f62-567b-4041-af60-921340415ab8" alt="Gemini Preparation UI" width="230" />
-        </a>
-      </td>
-      <td>
-        <a href="https://github.com/user-attachments/assets/2cc08b24-32a7-4d1c-987a-f9136cee4f5d" target="_blank">
-          <img src="https://github.com/user-attachments/assets/2cc08b24-32a7-4d1c-987a-f9136cee4f5d" alt="Gemini Sections Progress" width="230" />
-        </a>
-      </td>
-      <td>
-        <a href="https://github.com/user-attachments/assets/610e1f26-dcb2-4e0d-9a4b-58d267467099" target="_blank">
-          <img src="https://github.com/user-attachments/assets/610e1f26-dcb2-4e0d-9a4b-58d267467099" alt="Speaker Detection" width="230" />
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td>
-        <a href="https://github.com/user-attachments/assets/125181d0-38e4-4404-b3cf-7e25dc741f3b" target="_blank">
-          <img src="https://github.com/user-attachments/assets/125181d0-38e4-4404-b3cf-7e25dc741f3b" alt="Voice Assignment UI" width="230" />
-        </a>
-      </td>
-      <td>
-        <a href="https://github.com/user-attachments/assets/fb75e709-440b-413a-bc0b-5af6587ef4cf" target="_blank">
-          <img src="https://github.com/user-attachments/assets/fb75e709-440b-413a-bc0b-5af6587ef4cf" alt="Job Queue Progress" width="230" />
-        </a>
-      </td>
-      <td>
-        <a href="https://github.com/user-attachments/assets/1213708b-874c-426e-8cb8-0a5472f8ec93" target="_blank">
-          <img src="https://github.com/user-attachments/assets/1213708b-874c-426e-8cb8-0a5472f8ec93" alt="Library Downloads" width="230" />
-        </a>
-      </td>
-    </tr>
-  </table>
-</div>
+
 
 ## Features
 
