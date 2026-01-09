@@ -2,7 +2,44 @@
 
 A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M** and **Chatterbox**, with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.
 
-
+<div align="center">
+  <table>
+    <tr>
+      <td>
+        <a href="https://github.com/user-attachments/assets/3709cdf4-036e-4154-8ea2-b1b780ae81d5" target="_blank">
+          <img src="https://github.com/user-attachments/assets/3709cdf4-036e-4154-8ea2-b1b780ae81d5" alt="Screenshot 1" width="280" />
+        </a>
+      </td>
+      <td>
+        <a href="https://github.com/user-attachments/assets/3972d844-f7c1-4738-91ea-06c0c4289ed3" target="_blank">
+          <img src="https://github.com/user-attachments/assets/3972d844-f7c1-4738-91ea-06c0c4289ed3" alt="Screenshot 2" width="280" />
+        </a>
+      </td>
+      <td>
+        <a href="https://github.com/user-attachments/assets/eb8a5160-2be4-4c07-ab71-b2a6534a55a9" target="_blank">
+          <img src="https://github.com/user-attachments/assets/eb8a5160-2be4-4c07-ab71-b2a6534a55a9" alt="Screenshot 3" width="280" />
+        </a>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <a href="https://github.com/user-attachments/assets/8e96ea1e-221d-4ef9-9cc4-d1e86b95c75d" target="_blank">
+          <img src="https://github.com/user-attachments/assets/8e96ea1e-221d-4ef9-9cc4-d1e86b95c75d" alt="Screenshot 4" width="280" />
+        </a>
+      </td>
+      <td>
+        <a href="https://github.com/user-attachments/assets/d73fd188-94a2-4fef-85ae-b1003afee539" target="_blank">
+          <img src="https://github.com/user-attachments/assets/d73fd188-94a2-4fef-85ae-b1003afee539" alt="Screenshot 5" width="280" />
+        </a>
+      </td>
+      <td>
+        <a href="https://github.com/user-attachments/assets/d410995f-2b3b-4401-a4cd-0186ce28b272" target="_blank">
+          <img src="https://github.com/user-attachments/assets/d410995f-2b3b-4401-a4cd-0186ce28b272" alt="Screenshot 6" width="280" />
+        </a>
+      </td>
+    </tr>
+  </table>
+</div>
 
 ## Features
 
