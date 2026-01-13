@@ -10,8 +10,15 @@
       "method": "shell.run",
       "params": {
         "venv": "env",
+        "message": "python -m pip install --upgrade pip"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "venv": "env",
         "message": [
-          "pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121",
+          "pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124",
           "pip install -r requirements.txt"
         ]
       }
@@ -20,7 +27,14 @@
       "method": "shell.run",
       "params": {
         "venv": "env",
-        "message": "pip install chatterbox-tts"
+        "message": "pip install chatterbox-tts --no-deps"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "venv": "env",
+        "message": "pip install s3tokenizer transformers==4.46.3 diffusers==0.29.0 resemble-perth==1.0.1 conformer==0.3.2 safetensors==0.5.3 spacy-pkuseg pykakasi==2.3.0 omegaconf>=2.3.0"
       }
     },
     {
