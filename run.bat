@@ -25,11 +25,8 @@ if exist "%RB_EXE%" (
     echo          Pitch/tempo FX will fall back to lower-quality processing.
 )
 
-REM Check CUDA availability
-python -c "import torch; print('CUDA Available:', torch.cuda.is_available())" 2>nul
-if errorlevel 1 (
-    echo WARNING: Could not check CUDA status
-)
+REM Skip CUDA check at startup (can hang on some systems)
+REM CUDA availability will be detected when the app starts
 
 echo.
 echo Starting Flask server...

@@ -1,0 +1,22 @@
+{
+  "run": [
+    {
+      "method": "fs.rm",
+      "params": {
+        "path": "env"
+      }
+    },
+    {
+      "method": "fs.rm",
+      "params": {
+        "path": "output"
+      }
+    },
+    {
+      "method": "fs.rm",
+      "params": {
+        "path": "config.json"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "daemon": true,
+  "run": [
+    {
+      "method": "shell.run",
+      "params": {
+        "venv": "env",
+        "message": "python app.py"
+      }
+    },
+    {
+      "method": "local.set",
+      "params": {
+        "url": "http://localhost:5000"
+      }
+    }
+  ]
+}
