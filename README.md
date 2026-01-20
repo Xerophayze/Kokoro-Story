@@ -1,6 +1,10 @@
 # TTS-Story
 
+
 A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M** and **Chatterbox**, with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.
+
+> **📚 Quick Links:** [Installation Guide](DOCS.md) | [Quick Start](docs/QUICKSTART.md) | [Installation Options](docs/INSTALLATION_OPTIONS.md) | [Troubleshooting](docs/PYTHON_VERSION_FIX.md)
+
 
 <div align="center">
   <table>
@@ -129,11 +133,70 @@ You can also drag-and-drop multiple audio files for bulk upload. Each voice can 
 ## Installation
 
 ### Prerequisites
-- Python 3.9 or higher
+- **Python 3.10, 3.11, or 3.12** (Python 3.13+ not yet supported due to dependency constraints)
+  - **Recommended:** Python 3.12 for best compatibility
+  - See [Python Version Management](#python-version-management) below for installation options
 - NVIDIA GPU with CUDA support (optional, for local GPU inference)
 - Internet connection (for downloading dependencies)
 
+### Python Version Management
+
+This project requires **Python 3.10-3.12** (Python 3.13+ is not yet supported by the `kokoro` TTS package).
+
+#### Option 1: Using `uv` (Recommended - Cross-Platform)
+
+[`uv`](https://github.com/astral-sh/uv) is a fast, modern Python package and version manager that works on Windows, Linux, and macOS:
+
+```bash
+# Install uv (one-time setup)
+# Windows (PowerShell)
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Linux/macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Create virtual environment with Python 3.12 (uv downloads it automatically)
+uv venv --python 3.12
+
+# Activate the environment
+# Windows
+.venv\Scripts\activate
+# Linux/macOS
+source .venv/bin/activate
+
+# Install dependencies
+uv pip install -r requirements.txt
+```
+
+#### Option 2: Using `pyenv` (Cross-Platform)
+
+- **Linux/macOS:** [pyenv](https://github.com/pyenv/pyenv)
+- **Windows:** [pyenv-win](https://github.com/pyenv-win/pyenv-win)
+
+```bash
+# Install Python 3.12 via pyenv
+pyenv install 3.12.7
+pyenv local 3.12.7
+
+# Then proceed with normal venv setup
+python -m venv venv
+```
+
+#### Option 3: Manual Installation
+
+Download Python 3.12 from [python.org](https://www.python.org/downloads/) and install it:
+- On **Windows**, use the `py` launcher to select the version: `py -3.12 -m venv venv`
+- On **Linux/macOS**, you may need to install via your package manager or build from source
+
+
+
+
+
 ### Automatic Installation (Recommended)
+
+**The easiest way to install TTS-Story is using our smart setup script. Just run one command!**
+
+#### Windows
 
 1. **Clone or download the repository**
 ```bash
@@ -146,30 +209,59 @@ cd TTS-Story
 setup.bat
 ```
 
-The setup script will automatically:
-- ✅ Detect your Python version
-- ✅ Create a Python virtual environment
-- ✅ Detect your NVIDIA GPU and CUDA version
-- ✅ Install PyTorch with appropriate CUDA support (or CPU-only if no GPU)
-- ✅ Download and install espeak-ng automatically
-- ✅ Install all other required dependencies
-- ✅ Download the Rubber Band CLI and wire it up for high-quality pitch/tempo FX
-- ✅ Verify the installation
-
-**Supported CUDA Versions:**
-- CUDA 12.9, 12.8, 12.6, 12.4, 12.1
-- CUDA 11.8
-- CPU-only (automatic fallback if no GPU detected)
+The script will:
+- ✅ Detect if UV is available (fast package manager)
+- ✅ Offer to install UV if not found (recommended for 10-100x faster installation)
+- ✅ Download Python 3.12 automatically (if using UV)
+- ✅ Install PyTorch with CUDA support (or CPU fallback)
+- ✅ Install all dependencies
+- ✅ Fall back to traditional pip if UV is not desired
 
 3. **Start the application**
 ```bash
 run.bat
 ```
 
+#### Linux/macOS
+
+1. **Clone or download the repository**
+```bash
+git clone <your-repo-url>
+cd TTS-Story
+```
+
+2. **Run the setup script**
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+The script will:
+- ✅ Detect if UV is available (fast package manager)
+- ✅ Offer to install UV if not found (recommended for 10-100x faster installation)
+- ✅ Download Python 3.12 automatically (if using UV)
+- ✅ Install PyTorch with CUDA support (or CPU fallback)
+- ✅ Install all dependencies
+- ✅ Fall back to traditional pip if UV is not desired
+
+3. **Start the application**
+```bash
+source venv/bin/activate  # Activate the environment
+python app.py
+```
+
 4. **Open your browser**
 ```
 http://localhost:5000
 ```
+
+**Note:** The setup script is smart! It will:
+- Use UV if already installed (fastest)
+- Offer to install UV if not found (recommended)
+- Fall back to pip if you prefer traditional setup
+- Work with Python 3.10, 3.11, or 3.12
+
+
 
 ### Manual Installation
 

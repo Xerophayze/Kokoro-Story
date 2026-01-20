@@ -1,0 +1,57 @@
+[project]
+name = "tts-story"
+version = "1.0.0"
+description = "A web-based Text-to-Speech application supporting multiple TTS engines"
+requires-python = ">=3.10,<3.13"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+
+dependencies = [
+    "flask>=3.0.0",
+    "flask-cors>=4.0.0",
+    "python-docx>=1.1.0",
+    "pypdf>=4.0.0",
+    "ebooklib>=0.18",
+    "beautifulsoup4>=4.12.0",
+    "striprtf>=0.0.26",
+    "odfpy>=1.4.1",
+    "markdown>=3.5.0",
+    "kokoro>=0.9.4",
+    "soundfile>=0.12.1",
+    "numpy>=1.24.0,<1.26.0; python_version < '3.12'",
+    "pydub>=0.25.1",
+    "librosa==0.11.0",
+    "resampy>=0.4.2",
+    "pyrubberband>=0.4.0",
+    "replicate>=0.25.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "google-genai>=1.0.0",
+    "s3tokenizer",
+    "transformers==4.46.3",
+    "diffusers==0.29.0",
+    "resemble-perth==1.0.1",
+    "conformer==0.3.2",
+    "safetensors==0.5.3",
+    "spacy-pkuseg",
+    "pykakasi==2.3.0",
+    "gradio==5.44.1",
+    "pyloudnorm>=0.1.0",
+    "omegaconf>=2.3.0",
+    "pyopenjtalk",
+    "ordered-set",
+    "fugashi[unidic-lite]",
+    "pypinyin",
+    "jaconv",
+    "cn2an",
+    "mojimoji",
+    "jieba",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+# UV-specific configuration
+# Python version is specified in [project] requires-python above

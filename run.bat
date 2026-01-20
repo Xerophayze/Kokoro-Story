@@ -4,8 +4,13 @@ echo Starting TTS-Story
 echo ========================================
 echo.
 
-REM Check if venv exists
-if not exist "venv\Scripts\activate.bat" (
+REM Check if venv exists (check both .venv and venv)
+set "VENV_PATH="
+if exist ".venv\Scripts\activate.bat" (
+    set "VENV_PATH=.venv"
+) else if exist "venv\Scripts\activate.bat" (
+    set "VENV_PATH=venv"
+) else (
     echo ERROR: Virtual environment not found
     echo Please run setup.bat first
     pause
@@ -13,7 +18,7 @@ if not exist "venv\Scripts\activate.bat" (
 )
 
 REM Activate virtual environment
-call venv\Scripts\activate.bat
+call %VENV_PATH%\Scripts\activate.bat
 
 REM Ensure Rubber Band CLI is on PATH if bundled
 set "RB_EXE=%~dp0tools\rubberband\rubberband.exe"
