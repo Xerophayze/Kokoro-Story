@@ -1,6 +1,6 @@
 # TTS-Story
 
-A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M** and **Chatterbox**, with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.
+A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M**, **Chatterbox**, and **VoxCPM 1.5**, with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.
 
 <div align="center">
   <table>
@@ -44,14 +44,16 @@ A web-based Text-to-Speech application supporting multiple TTS engines including
 ## Features
 
 ### TTS Engines
-- **Multi-Engine Support**: Choose from four TTS engine options:
+- **Multi-Engine Support**: Choose from five TTS engine options:
   - **Kokoro · Local GPU** - Run Kokoro-82M locally on your NVIDIA GPU
   - **Kokoro · Replicate** - Use Kokoro via Replicate cloud API
   - **Chatterbox · Local GPU** - Run Chatterbox locally with voice cloning (~8GB VRAM required)
   - **Chatterbox · Replicate** - Use Chatterbox via Replicate cloud API (`resemble-ai/chatterbox-turbo`)
+  - **VoxCPM 1.5 · Local GPU** - Run VoxCPM 1.5 locally with voice cloning and automatic transcription
 - **Unified Replicate API**: Single API token works for both Kokoro and Chatterbox Replicate engines
-- **Chatterbox Voice Cloning**: Upload your own voice recordings (10-15 seconds recommended) to clone any voice
-- **Chatterbox Voice Management**: Add, rename, delete, and preview custom voice prompts with drag-and-drop bulk upload
+- **Voice Cloning**: Upload your own voice recordings (10-15 seconds recommended) to clone any voice with Chatterbox or VoxCPM
+- **Voice Prompt Management**: Add, rename, delete, and preview custom voice prompts with drag-and-drop bulk upload
+- **External Voice Library**: Browse and download 500+ voice samples from the [TTS Samples](https://github.com/yaph/tts-samples) repository directly in the app
 
 ### Voice & Audio
 - **Multi-Voice Support**: Use Kokoro-82M voices for any number of characters in your story
@@ -113,18 +115,48 @@ TTS-Story exposes the full Kokoro-82M voice set, grouped by language.
 
 All of these voices are browsable in the **Available Voices** tab, where you can generate and play preview samples.
 
-### Chatterbox Voices
+### Voice Prompts (Chatterbox & VoxCPM)
 
-Chatterbox supports voice cloning from audio recordings. To add custom voices:
+Both Chatterbox and VoxCPM support voice cloning from audio recordings. Voice prompts are shared between these engines.
 
-1. Go to the **Available Voices** tab and scroll to the **Chatterbox Available Voices** section
+#### Adding Voice Prompts
+
+1. Go to the **Available Voices** tab → **Voice Prompts** section
 2. Upload a voice recording (WAV, MP3, M4A, FLAC, or OGG format)
    - **Recommended duration**: 10-15 seconds of clear speech
    - Avoid background noise for best results
 3. Give the voice a descriptive name and click **Save Voice**
-4. Your custom voices appear in all Chatterbox voice dropdowns, sorted alphabetically
+4. Your custom voices appear in all Chatterbox/VoxCPM voice dropdowns
 
-You can also drag-and-drop multiple audio files for bulk upload. Each voice can be previewed, renamed, or deleted from the management interface.
+You can also drag-and-drop multiple audio files for bulk upload.
+
+#### Voice Prompt Management
+
+The Voice Prompts section provides a sortable list view with:
+- **Name, Gender, Language, Duration, Source** columns
+- **Sortable headers** - Click any column to sort
+- **Filtering** - Filter by gender, language, or source (local vs external)
+- **Search** - Find voices by name
+- **Edit** - Click Edit to modify name, gender, and language metadata
+- **Preview** - Play any voice sample directly
+- **Delete** - Remove unwanted voice prompts
+
+#### External Voice Library
+
+TTS-Story integrates with the [TTS Samples](https://github.com/yaph/tts-samples) repository, providing access to 500+ pre-recorded voice samples in multiple languages:
+
+1. In the Voice Prompts section, external voices appear with an "External" source badge
+2. Click **Download** to save any external voice locally
+3. Downloaded voices become local and can be edited/deleted
+4. Filter by source to show only local or external voices
+
+#### Voice Dropdown Enhancements
+
+All voice selection dropdowns (main screen and library) now show:
+- **Gender indicator**: `[M]` for Male, `[F]` for Female
+- **Language**: Human-readable language name (e.g., "English (UK)")
+- **Duration**: Sample length in seconds
+- **Filter controls**: Filter by gender and language before selecting
 
 ## Installation
 
@@ -212,7 +244,7 @@ python app.py
 
 ### Selecting a TTS Engine
 
-TTS-Story supports four TTS engine options. In the **Settings** tab, choose your preferred default engine:
+TTS-Story supports five TTS engine options. In the **Settings** tab, choose your preferred default engine:
 
 | Engine | Description | Requirements |
 |--------|-------------|--------------|
@@ -220,8 +252,18 @@ TTS-Story supports four TTS engine options. In the **Settings** tab, choose your
 | **Kokoro · Replicate** | Kokoro via cloud API | Replicate API token |
 | **Chatterbox · Local GPU** | Chatterbox with voice cloning | NVIDIA GPU (~8GB VRAM) |
 | **Chatterbox · Replicate** | Chatterbox via cloud API | Replicate API token |
+| **VoxCPM 1.5 · Local GPU** | VoxCPM with voice cloning & auto-transcription | NVIDIA GPU (~6GB VRAM) |
 
 You can also override the engine per-job in the **Generate** tab.
+
+### VoxCPM 1.5 Engine
+
+VoxCPM 1.5 is a powerful voice cloning engine with unique features:
+
+- **Automatic Transcription**: If no transcript is provided, VoxCPM uses SenseVoice ASR to automatically transcribe the reference audio
+- **Shared Voice Prompts**: Uses the same voice prompt library as Chatterbox
+- **Lower VRAM Requirements**: Runs on GPUs with ~6GB VRAM
+- **High Quality Output**: Produces natural-sounding speech with good prosody
 
 ### Basic Workflow
 
@@ -236,13 +278,14 @@ You can also override the engine per-job in the **Generate** tab.
    - **Job Queue** tab (with real-time progress, ETA, and player)
    - **Library** tab (all past generations with engine indicator)
 
-### Using Chatterbox Voice Cloning
+### Using Voice Cloning (Chatterbox & VoxCPM)
 
-When using a Chatterbox engine:
+When using Chatterbox or VoxCPM engines:
 
-1. First, add voice recordings in **Available Voices → Chatterbox Available Voices**
-2. In the **Generate** tab, select your cloned voice from the **Reference Voice** dropdown
-3. Each speaker can use a different cloned voice for multi-character stories
+1. First, add voice recordings in **Available Voices → Voice Prompts**
+2. In the **Generate** tab, select your cloned voice from the **Reference Prompt** dropdown
+3. Use the gender and language filters to quickly find the right voice
+4. Each speaker can use a different cloned voice for multi-character stories
 
 ### Quick Test Previews
 
@@ -375,6 +418,7 @@ Settings are stored in `config.json`:
   "chatterbox_turbo_local_device": "auto",
   "chatterbox_turbo_local_temperature": 0.8,
   "chatterbox_turbo_replicate_model": "resemble-ai/chatterbox-turbo",
+  "voxcpm_local_device": "auto",
   "gemini_api_key": "",
   "gemini_model": "gemini-2.0-flash"
 }
@@ -388,6 +432,7 @@ Settings are stored in `config.json`:
 | `kokoro_replicate` | Kokoro via Replicate cloud API |
 | `chatterbox_turbo_local` | Chatterbox local GPU with voice cloning |
 | `chatterbox_turbo_replicate` | Chatterbox via Replicate cloud API |
+| `voxcpm_local` | VoxCPM 1.5 local GPU with voice cloning |
 
 Any settings you override in the Generate tab (format, bitrate, engine) are sent along with the job payload while keeping the saved defaults intact.
 
@@ -410,7 +455,8 @@ TTS-Story/
 │   └── engines/
 │       ├── kokoro_engine.py              # Kokoro-82M local engine
 │       ├── chatterbox_turbo_local_engine.py    # Chatterbox local GPU engine
-│       └── chatterbox_turbo_replicate_engine.py # Chatterbox Replicate engine
+│       ├── chatterbox_turbo_replicate_engine.py # Chatterbox Replicate engine
+│       └── voxcpm_local_engine.py        # VoxCPM 1.5 local GPU engine
 ├── static/
 │   ├── css/
 │   │   └── style.css
@@ -454,11 +500,14 @@ TTS-Story/
 - `GET /api/custom-voices/<voice_id>` - Retrieve a specific custom voice (ID or `custom_` code)
 - `PUT /api/custom-voices/<voice_id>` - Update an existing custom voice blend
 - `DELETE /api/custom-voices/<voice_id>` - Delete a custom voice and invalidate cached tensors
-- `GET /api/chatterbox-voices` - List saved Chatterbox voice prompts
-- `POST /api/chatterbox-voices` - Upload a new Chatterbox voice prompt
-- `PUT /api/chatterbox-voices/<voice_id>` - Rename a Chatterbox voice
-- `DELETE /api/chatterbox-voices/<voice_id>` - Delete a Chatterbox voice
-- `GET /api/chatterbox-voices/<voice_id>/preview` - Preview a Chatterbox voice
+- `GET /api/chatterbox-voices` - List saved voice prompts (for Chatterbox/VoxCPM)
+- `POST /api/chatterbox-voices` - Upload a new voice prompt
+- `PUT /api/chatterbox-voices/<voice_id>/update` - Update voice metadata (name, gender, language)
+- `DELETE /api/chatterbox-voices/<voice_id>` - Delete a voice prompt
+- `GET /api/chatterbox-voices/<voice_id>/preview` - Preview a voice prompt
+- `GET /api/voice-prompts` - List voice prompts with metadata (gender, language, duration)
+- `GET /api/external-voices` - List available external voice samples from GitHub
+- `POST /api/external-voices/<voice_id>/download` - Download an external voice sample locally
 
 ## Performance
 
@@ -485,6 +534,13 @@ TTS-Story/
 - Cost varies by usage
 - No GPU required
 
+### VoxCPM 1.5 · Local GPU
+- Requires ~6GB VRAM
+- Voice cloning from audio samples
+- Automatic transcription via SenseVoice ASR
+- No API costs
+- Full privacy
+
 ## Troubleshooting
 
 ### espeak-ng not found
@@ -504,6 +560,8 @@ Apache 2.0 - Same as Kokoro-82M
 
 - [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad
 - [Chatterbox](https://github.com/resemble-ai/chatterbox) by Resemble AI
+- [VoxCPM](https://github.com/openvpi/VoxCPM) by OpenVPI
+- [TTS Samples](https://github.com/yaph/tts-samples) by yaph - External voice sample library
 - [StyleTTS2](https://github.com/yl4579/StyleTTS2) by yl4579
 - [Replicate](https://replicate.com) for cloud API
 

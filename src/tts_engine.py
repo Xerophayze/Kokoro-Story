@@ -7,6 +7,7 @@ from typing import Dict, Type
 
 from .engines import TtsEngineBase
 from .engines.chatterbox_turbo_local_engine import ChatterboxTurboLocalEngine
+from .engines.voxcpm_local_engine import VoxCPMLocalEngine
 from .engines.chatterbox_turbo_replicate_engine import ChatterboxTurboReplicateEngine
 from .engines.kokoro_engine import (
     DEFAULT_SAMPLE_RATE,
@@ -20,6 +21,7 @@ EngineRegistry: Dict[str, Type[TtsEngineBase]] = {
     "kokoro_replicate": ReplicateAPI,
     "chatterbox_turbo_local": ChatterboxTurboLocalEngine,
     "chatterbox_turbo_replicate": ChatterboxTurboReplicateEngine,
+    "voxcpm_local": VoxCPMLocalEngine,
 }
 AVAILABLE_ENGINES = tuple(EngineRegistry.keys())
 

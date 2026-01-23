@@ -79,12 +79,20 @@ del temp_requirements.txt
 
 REM Install local Chatterbox runtime
 echo.
-echo [7/8] Installing Chatterbox Turbo runtime...
+echo [7/9] Installing Chatterbox Turbo runtime...
 pip install chatterbox-tts --no-deps
 if errorlevel 1 (
     echo ERROR: Failed to install chatterbox-tts
     pause
     exit /b 1
+)
+
+REM Install VoxCPM runtime
+echo.
+echo [8/9] Installing VoxCPM 1.5 runtime...
+pip install voxcpm --no-deps
+if errorlevel 1 (
+    echo WARNING: Failed to install voxcpm - VoxCPM engine will not be available
 )
 
 call :EnsureVoicePromptFolder
@@ -135,7 +143,7 @@ goto :EOF
 
 :InstallRubberBand
 echo.
-echo [8/8] Installing Rubber Band CLI...
+echo [9/9] Installing Rubber Band CLI...
 set "RB_DIR=%~dp0tools\rubberband"
 set "RB_URL=https://breakfastquay.com/files/releases/rubberband-4.0.0-gpl-executable-windows.zip"
 set "RB_ZIP=%TEMP%\rubberband_cli.zip"

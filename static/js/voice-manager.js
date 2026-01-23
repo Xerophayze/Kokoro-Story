@@ -32,6 +32,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setupCustomVoiceModal();
     loadChatterboxVoices();
     setupChatterboxVoiceSection();
+    setupVoiceListControls();
+    initEditVoiceModal();
 });
 
 // Load available voices from API
@@ -389,43 +391,230 @@ async function bulkUploadChatterboxVoices(files, dropzone, statusContainer, file
     }
 }
 
+// Voice list state
+let externalVoices = [];
+let allVoices = []; // Combined local + external
+let voiceListSortKey = 'name';
+let voiceListSortDir = 'asc';
+
+// Locale code to human-readable language name mapping (voice-manager specific)
+const VM_LOCALE_NAMES = {
+    'af-ZA': 'Afrikaans',
+    'am-ET': 'Amharic',
+    'ar-AE': 'Arabic (UAE)',
+    'ar-BH': 'Arabic (Bahrain)',
+    'ar-DZ': 'Arabic (Algeria)',
+    'ar-EG': 'Arabic (Egypt)',
+    'ar-IQ': 'Arabic (Iraq)',
+    'ar-JO': 'Arabic (Jordan)',
+    'ar-KW': 'Arabic (Kuwait)',
+    'ar-LB': 'Arabic (Lebanon)',
+    'ar-LY': 'Arabic (Libya)',
+    'ar-MA': 'Arabic (Morocco)',
+    'ar-OM': 'Arabic (Oman)',
+    'ar-QA': 'Arabic (Qatar)',
+    'ar-SA': 'Arabic (Saudi)',
+    'ar-SY': 'Arabic (Syria)',
+    'ar-TN': 'Arabic (Tunisia)',
+    'ar-YE': 'Arabic (Yemen)',
+    'az-AZ': 'Azerbaijani',
+    'bg-BG': 'Bulgarian',
+    'bn-BD': 'Bengali (Bangladesh)',
+    'bn-IN': 'Bengali (India)',
+    'bs-BA': 'Bosnian',
+    'ca-ES': 'Catalan',
+    'cs-CZ': 'Czech',
+    'cy-GB': 'Welsh',
+    'da-DK': 'Danish',
+    'de-AT': 'German (Austria)',
+    'de-CH': 'German (Swiss)',
+    'de-DE': 'German',
+    'el-GR': 'Greek',
+    'en-AU': 'English (Australia)',
+    'en-CA': 'English (Canada)',
+    'en-GB': 'English (UK)',
+    'en-HK': 'English (Hong Kong)',
+    'en-IE': 'English (Ireland)',
+    'en-IN': 'English (India)',
+    'en-KE': 'English (Kenya)',
+    'en-NG': 'English (Nigeria)',
+    'en-NZ': 'English (New Zealand)',
+    'en-PH': 'English (Philippines)',
+    'en-SG': 'English (Singapore)',
+    'en-TZ': 'English (Tanzania)',
+    'en-US': 'English (US)',
+    'en-ZA': 'English (South Africa)',
+    'es-AR': 'Spanish (Argentina)',
+    'es-BO': 'Spanish (Bolivia)',
+    'es-CL': 'Spanish (Chile)',
+    'es-CO': 'Spanish (Colombia)',
+    'es-CR': 'Spanish (Costa Rica)',
+    'es-CU': 'Spanish (Cuba)',
+    'es-DO': 'Spanish (Dominican Rep.)',
+    'es-EC': 'Spanish (Ecuador)',
+    'es-ES': 'Spanish (Spain)',
+    'es-GQ': 'Spanish (Eq. Guinea)',
+    'es-GT': 'Spanish (Guatemala)',
+    'es-HN': 'Spanish (Honduras)',
+    'es-MX': 'Spanish (Mexico)',
+    'es-NI': 'Spanish (Nicaragua)',
+    'es-PA': 'Spanish (Panama)',
+    'es-PE': 'Spanish (Peru)',
+    'es-PR': 'Spanish (Puerto Rico)',
+    'es-PY': 'Spanish (Paraguay)',
+    'es-SV': 'Spanish (El Salvador)',
+    'es-US': 'Spanish (US)',
+    'es-UY': 'Spanish (Uruguay)',
+    'es-VE': 'Spanish (Venezuela)',
+    'et-EE': 'Estonian',
+    'eu-ES': 'Basque',
+    'fa-IR': 'Persian',
+    'fi-FI': 'Finnish',
+    'fil-PH': 'Filipino',
+    'fr-BE': 'French (Belgium)',
+    'fr-CA': 'French (Canada)',
+    'fr-CH': 'French (Swiss)',
+    'fr-FR': 'French',
+    'ga-IE': 'Irish',
+    'gl-ES': 'Galician',
+    'gu-IN': 'Gujarati',
+    'he-IL': 'Hebrew',
+    'hi-IN': 'Hindi',
+    'hr-HR': 'Croatian',
+    'hu-HU': 'Hungarian',
+    'hy-AM': 'Armenian',
+    'id-ID': 'Indonesian',
+    'is-IS': 'Icelandic',
+    'it-IT': 'Italian',
+    'ja-JP': 'Japanese',
+    'jv-ID': 'Javanese',
+    'ka-GE': 'Georgian',
+    'kk-KZ': 'Kazakh',
+    'km-KH': 'Khmer',
+    'kn-IN': 'Kannada',
+    'ko-KR': 'Korean',
+    'lo-LA': 'Lao',
+    'lt-LT': 'Lithuanian',
+    'lv-LV': 'Latvian',
+    'mk-MK': 'Macedonian',
+    'ml-IN': 'Malayalam',
+    'mn-MN': 'Mongolian',
+    'mr-IN': 'Marathi',
+    'ms-MY': 'Malay',
+    'mt-MT': 'Maltese',
+    'my-MM': 'Burmese',
+    'nb-NO': 'Norwegian',
+    'ne-NP': 'Nepali',
+    'nl-BE': 'Dutch (Belgium)',
+    'nl-NL': 'Dutch',
+    'pl-PL': 'Polish',
+    'ps-AF': 'Pashto',
+    'pt-BR': 'Portuguese (Brazil)',
+    'pt-PT': 'Portuguese',
+    'ro-RO': 'Romanian',
+    'ru-RU': 'Russian',
+    'si-LK': 'Sinhala',
+    'sk-SK': 'Slovak',
+    'sl-SI': 'Slovenian',
+    'so-SO': 'Somali',
+    'sq-AL': 'Albanian',
+    'sr-RS': 'Serbian',
+    'su-ID': 'Sundanese',
+    'sv-SE': 'Swedish',
+    'sw-KE': 'Swahili (Kenya)',
+    'sw-TZ': 'Swahili (Tanzania)',
+    'ta-IN': 'Tamil (India)',
+    'ta-LK': 'Tamil (Sri Lanka)',
+    'ta-MY': 'Tamil (Malaysia)',
+    'ta-SG': 'Tamil (Singapore)',
+    'te-IN': 'Telugu',
+    'th-TH': 'Thai',
+    'tr-TR': 'Turkish',
+    'uk-UA': 'Ukrainian',
+    'ur-IN': 'Urdu (India)',
+    'ur-PK': 'Urdu (Pakistan)',
+    'uz-UZ': 'Uzbek',
+    'vi-VN': 'Vietnamese',
+    'wuu-CN': 'Wu Chinese',
+    'yue-CN': 'Cantonese',
+    'zh-CN': 'Chinese (Mandarin)',
+    'zh-HK': 'Chinese (Hong Kong)',
+    'zh-TW': 'Chinese (Taiwan)',
+    'zu-ZA': 'Zulu',
+};
+
+function getLanguageDisplayName(localeCode) {
+    if (!localeCode) return '—';
+    return VM_LOCALE_NAMES[localeCode] || localeCode;
+}
+
 function renderChatterboxVoiceList() {
     const container = document.getElementById('chatterbox-voice-list');
     if (!container) return;
-    if (!chatterboxVoices.length) {
-        container.innerHTML = '<p class="help-text">No saved voices yet. Add one above.</p>';
+    
+    // Build set of local file names to detect duplicates
+    const localFileNames = new Set(
+        chatterboxVoices.map(v => v.file_name).filter(Boolean)
+    );
+    
+    // Filter out external voices that have been downloaded (exist in local list)
+    const filteredExternalVoices = externalVoices.filter(v => {
+        const fileName = `${v.short_name}.mp3`;
+        return !localFileNames.has(fileName);
+    });
+    
+    // Combine local and external voices
+    allVoices = [
+        ...chatterboxVoices.map(v => ({ ...v, source: 'local' })),
+        ...filteredExternalVoices.map(v => ({ ...v, source: 'external' }))
+    ];
+    
+    // Apply filters
+    const filteredVoices = applyVoiceFilters(allVoices);
+    
+    // Apply sorting
+    const sortedVoices = sortVoices(filteredVoices, voiceListSortKey, voiceListSortDir);
+    
+    // Update stats
+    updateVoiceListStats(filteredVoices.length, allVoices.length);
+    
+    // Update language filter options
+    updateLanguageFilterOptions(allVoices);
+    
+    if (!sortedVoices.length) {
+        container.innerHTML = '<tr><td colspan="6" class="help-text">No voices match your filters.</td></tr>';
         return;
     }
+    
     container.innerHTML = '';
-    // Sort voices alphabetically by name
-    const sortedVoices = [...chatterboxVoices].sort((a, b) => 
-        (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase())
-    );
     sortedVoices.forEach(entry => {
-        const card = document.createElement('div');
-        card.className = 'chatterbox-voice-card';
-        if (entry.missing_file) {
-            card.classList.add('missing');
-        }
-        card.dataset.voiceId = entry.id;
-        const fileLabel = entry.prompt_path || entry.file_name || '';
-        const sizeLabel = summarizeFileSize(entry.size_bytes);
-        const created = entry.created_at ? new Date(entry.created_at).toLocaleString() : '';
-        card.innerHTML = `
-            <div class="chatterbox-voice-header">
-                <div>
-                    <strong>${escapeHtml(entry.name || 'Untitled Voice')}</strong>
-                    ${entry.missing_file ? '<span class="badge-danger">Missing file</span>' : ''}
-                </div>
-                ${created ? `<span class="chatterbox-voice-timestamp">Added ${created}</span>` : ''}
-            </div>
-            <div class="chatterbox-voice-meta">
-                <code>${escapeHtml(fileLabel)}</code>
-                ${sizeLabel ? `<span>${sizeLabel}</span>` : ''}
-            </div>
-            <div class="chatterbox-voice-actions">
-                ${entry.missing_file ? `
-                    <button type="button" class="btn-ghost" disabled>Unavailable</button>
+        const row = document.createElement('tr');
+        row.dataset.voiceId = entry.id;
+        row.dataset.source = entry.source;
+        
+        const isExternal = entry.source === 'external';
+        const isDownloaded = isExternal ? entry.is_downloaded : true;
+        const genderBadge = entry.gender ? 
+            `<span class="badge badge-${entry.gender.toLowerCase()}">${entry.gender}</span>` : 
+            '<span class="badge">—</span>';
+        const sourceBadge = isExternal ?
+            (isDownloaded ? '<span class="badge badge-downloaded">Downloaded</span>' : '<span class="badge badge-external">External</span>') :
+            '<span class="badge badge-local">Local</span>';
+        const durationText = entry.duration_seconds ? `${entry.duration_seconds.toFixed(1)}s` : '—';
+        const languageText = getLanguageDisplayName(entry.language);
+        
+        row.innerHTML = `
+            <td class="voice-name-cell">
+                ${escapeHtml(entry.name || 'Untitled Voice')}
+                ${entry.missing_file ? '<span class="badge badge-danger">Missing</span>' : ''}
+            </td>
+            <td>${genderBadge}</td>
+            <td>${escapeHtml(languageText)}</td>
+            <td>${durationText}</td>
+            <td>${sourceBadge}</td>
+            <td class="voice-actions">
+                ${isExternal && !isDownloaded ? `
+                    <button type="button" class="btn-ghost btn-download" data-action="download" data-voice-id="${entry.short_name}">Download</button>
                 ` : `
                     <button type="button" class="btn-ghost chatterbox-preview-btn"
                         data-action="preview"
@@ -434,13 +623,382 @@ function renderChatterboxVoiceList() {
                         Play
                     </button>
                 `}
-                <button type="button" class="btn-ghost" data-action="copy">Copy Path</button>
-                <button type="button" class="btn-ghost" data-action="rename">Rename</button>
-                <button type="button" class="btn-danger" data-action="delete">Delete</button>
-            </div>
+                ${!isExternal ? `
+                    <button type="button" class="btn-ghost" data-action="edit-meta">Edit</button>
+                    <button type="button" class="btn-danger" data-action="delete">Delete</button>
+                ` : ''}
+            </td>
         `;
-        container.appendChild(card);
+        container.appendChild(row);
     });
+}
+
+function applyVoiceFilters(voices) {
+    const searchInput = document.getElementById('voice-search-input');
+    const sourceFilter = document.getElementById('voice-filter-source');
+    const genderFilter = document.getElementById('voice-filter-gender');
+    const languageFilter = document.getElementById('voice-filter-language');
+    
+    const searchTerm = (searchInput?.value || '').toLowerCase().trim();
+    const sourceValue = sourceFilter?.value || 'all';
+    const genderValue = genderFilter?.value || 'all';
+    const languageValue = languageFilter?.value || 'all';
+    
+    return voices.filter(v => {
+        // Search filter
+        if (searchTerm) {
+            const nameMatch = (v.name || '').toLowerCase().includes(searchTerm);
+            const langMatch = (v.language || '').toLowerCase().includes(searchTerm);
+            const fileMatch = (v.file_name || '').toLowerCase().includes(searchTerm);
+            if (!nameMatch && !langMatch && !fileMatch) return false;
+        }
+        
+        // Source filter
+        if (sourceValue !== 'all' && v.source !== sourceValue) return false;
+        
+        // Gender filter
+        if (genderValue !== 'all' && v.gender !== genderValue) return false;
+        
+        // Language filter
+        if (languageValue !== 'all' && v.language !== languageValue) return false;
+        
+        return true;
+    });
+}
+
+function sortVoices(voices, key, dir) {
+    return [...voices].sort((a, b) => {
+        let aVal = a[key] ?? '';
+        let bVal = b[key] ?? '';
+        
+        if (key === 'duration') {
+            aVal = a.duration_seconds ?? 0;
+            bVal = b.duration_seconds ?? 0;
+        }
+        
+        if (typeof aVal === 'string') {
+            aVal = aVal.toLowerCase();
+            bVal = bVal.toLowerCase();
+        }
+        
+        if (aVal < bVal) return dir === 'asc' ? -1 : 1;
+        if (aVal > bVal) return dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+}
+
+function updateVoiceListStats(filtered, total) {
+    const statsEl = document.getElementById('voice-count-display');
+    if (statsEl) {
+        if (filtered === total) {
+            statsEl.textContent = `${total} voice${total !== 1 ? 's' : ''}`;
+        } else {
+            statsEl.textContent = `${filtered} of ${total} voices`;
+        }
+    }
+}
+
+function updateLanguageFilterOptions(voices) {
+    const select = document.getElementById('voice-filter-language');
+    if (!select) return;
+    
+    const currentValue = select.value;
+    const languages = new Set();
+    voices.forEach(v => {
+        if (v.language) languages.add(v.language);
+    });
+    
+    // Sort by display name, not locale code
+    const sortedLangs = [...languages].sort((a, b) => 
+        getLanguageDisplayName(a).localeCompare(getLanguageDisplayName(b))
+    );
+    select.innerHTML = '<option value="all">All Languages</option>';
+    sortedLangs.forEach(lang => {
+        const opt = document.createElement('option');
+        opt.value = lang;
+        opt.textContent = getLanguageDisplayName(lang);
+        select.appendChild(opt);
+    });
+    
+    // Restore selection if still valid
+    if (currentValue && languages.has(currentValue)) {
+        select.value = currentValue;
+    }
+}
+
+function setupVoiceListControls() {
+    // Search input
+    const searchInput = document.getElementById('voice-search-input');
+    if (searchInput) {
+        let debounceTimer;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => renderChatterboxVoiceList(), 200);
+        });
+    }
+    
+    // Filter selects
+    ['voice-filter-source', 'voice-filter-gender', 'voice-filter-language'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', () => renderChatterboxVoiceList());
+        }
+    });
+    
+    // Sort headers
+    const table = document.getElementById('chatterbox-voice-table');
+    if (table) {
+        table.querySelectorAll('th.sortable').forEach(th => {
+            th.addEventListener('click', () => {
+                const sortKey = th.dataset.sort;
+                if (voiceListSortKey === sortKey) {
+                    voiceListSortDir = voiceListSortDir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    voiceListSortKey = sortKey;
+                    voiceListSortDir = 'asc';
+                }
+                
+                // Update sort indicators
+                table.querySelectorAll('th.sortable').forEach(h => {
+                    h.classList.remove('sort-asc', 'sort-desc');
+                });
+                th.classList.add(voiceListSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+                
+                renderChatterboxVoiceList();
+            });
+        });
+    }
+    
+    // Load external voices button
+    const loadExternalBtn = document.getElementById('load-external-voices-btn');
+    if (loadExternalBtn) {
+        loadExternalBtn.addEventListener('click', loadExternalVoices);
+    }
+    
+    // Table row actions (delegated)
+    const tbody = document.getElementById('chatterbox-voice-list');
+    if (tbody) {
+        tbody.addEventListener('click', handleVoiceTableAction);
+    }
+}
+
+async function loadExternalVoices() {
+    const btn = document.getElementById('load-external-voices-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Loading...';
+    }
+    
+    try {
+        const response = await fetch('/api/external-voices');
+        const data = await response.json();
+        if (data.success) {
+            externalVoices = data.voices || [];
+            showToast(`Loaded ${externalVoices.length} external voices`, 'success');
+            renderChatterboxVoiceList();
+        } else {
+            throw new Error(data.error || 'Failed to load external voices');
+        }
+    } catch (error) {
+        console.error('Failed to load external voices:', error);
+        showToast(error.message || 'Failed to load external voices', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Load External Voices';
+        }
+    }
+}
+
+async function handleVoiceTableAction(event) {
+    const btn = event.target.closest('[data-action]');
+    if (!btn) return;
+    
+    const action = btn.dataset.action;
+    const row = btn.closest('tr');
+    const voiceId = row?.dataset.voiceId;
+    const source = row?.dataset.source;
+    
+    if (action === 'preview') {
+        if (source === 'external') {
+            const shortName = voiceId.replace('external:', '');
+            previewExternalVoice(shortName, btn);
+        } else {
+            toggleChatterboxVoicePreview(voiceId, btn);
+        }
+    } else if (action === 'download') {
+        const shortName = btn.dataset.voiceId;
+        await downloadExternalVoice(shortName, btn);
+    } else if (action === 'delete') {
+        await deleteChatterboxVoice(voiceId);
+    } else if (action === 'edit-meta') {
+        await editVoiceMetadata(voiceId);
+    }
+}
+
+async function downloadExternalVoice(shortName, btn) {
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Downloading...';
+    }
+    
+    try {
+        const response = await fetch(`/api/external-voices/${shortName}/download`, {
+            method: 'POST'
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast(`Downloaded ${shortName}`, 'success');
+            await loadChatterboxVoices(); // Refresh local voices
+            renderChatterboxVoiceList();
+        } else {
+            throw new Error(data.error || 'Download failed');
+        }
+    } catch (error) {
+        console.error('Download failed:', error);
+        showToast(error.message || 'Download failed', 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Download';
+        }
+    }
+}
+
+async function previewExternalVoice(shortName, btn) {
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Loading...';
+    }
+    
+    try {
+        const audio = new Audio(`/api/external-voices/${shortName}/preview`);
+        audio.addEventListener('ended', () => {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Play';
+            }
+        });
+        audio.addEventListener('error', () => {
+            showToast('Failed to play preview', 'error');
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Play';
+            }
+        });
+        await audio.play();
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Stop';
+        }
+    } catch (error) {
+        console.error('Preview failed:', error);
+        showToast('Failed to play preview', 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Play';
+        }
+    }
+}
+
+async function editVoiceMetadata(voiceId) {
+    const entry = chatterboxVoices.find(v => v.id === voiceId);
+    if (!entry) return;
+    
+    openEditVoiceModal(entry);
+}
+
+function openEditVoiceModal(entry) {
+    const overlay = document.getElementById('edit-voice-modal-overlay');
+    const modal = document.getElementById('edit-voice-modal');
+    const idInput = document.getElementById('edit-voice-id');
+    const nameInput = document.getElementById('edit-voice-name');
+    const genderSelect = document.getElementById('edit-voice-gender');
+    const languageSelect = document.getElementById('edit-voice-language');
+    
+    if (!overlay || !modal) return;
+    
+    // Populate language dropdown with all available locales
+    languageSelect.innerHTML = '<option value="">— Not specified —</option>';
+    Object.entries(VM_LOCALE_NAMES).sort((a, b) => a[1].localeCompare(b[1])).forEach(([code, name]) => {
+        const opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = name;
+        languageSelect.appendChild(opt);
+    });
+    
+    // Fill in current values
+    idInput.value = entry.id || '';
+    nameInput.value = entry.name || '';
+    genderSelect.value = entry.gender || '';
+    languageSelect.value = entry.language || '';
+    
+    // Show modal
+    overlay.classList.remove('hidden');
+    modal.classList.remove('hidden');
+    nameInput.focus();
+}
+
+function closeEditVoiceModal() {
+    const overlay = document.getElementById('edit-voice-modal-overlay');
+    const modal = document.getElementById('edit-voice-modal');
+    if (overlay) overlay.classList.add('hidden');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function saveEditVoiceModal() {
+    const idInput = document.getElementById('edit-voice-id');
+    const nameInput = document.getElementById('edit-voice-name');
+    const genderSelect = document.getElementById('edit-voice-gender');
+    const languageSelect = document.getElementById('edit-voice-language');
+    
+    const voiceId = idInput.value;
+    const name = nameInput.value.trim();
+    const gender = genderSelect.value || null;
+    const language = languageSelect.value || null;
+    
+    if (!voiceId) return;
+    
+    try {
+        const response = await fetch(`/api/chatterbox-voices/${voiceId}/update`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, gender, language })
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('Voice updated', 'success');
+            closeEditVoiceModal();
+            await loadChatterboxVoices();
+        } else {
+            throw new Error(data.error || 'Update failed');
+        }
+    } catch (error) {
+        console.error('Update failed:', error);
+        showToast(error.message || 'Update failed', 'error');
+    }
+}
+
+function initEditVoiceModal() {
+    const overlay = document.getElementById('edit-voice-modal-overlay');
+    const closeBtn = document.getElementById('edit-voice-close');
+    const cancelBtn = document.getElementById('edit-voice-cancel');
+    const saveBtn = document.getElementById('edit-voice-save');
+    
+    if (overlay) overlay.addEventListener('click', closeEditVoiceModal);
+    if (closeBtn) closeBtn.addEventListener('click', closeEditVoiceModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeEditVoiceModal);
+    if (saveBtn) saveBtn.addEventListener('click', saveEditVoiceModal);
+    
+    // Handle Enter key in form
+    const form = document.getElementById('edit-voice-form');
+    if (form) {
+        form.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                saveEditVoiceModal();
+            }
+        });
+    }
 }
 
 function summarizeFileSize(bytes) {

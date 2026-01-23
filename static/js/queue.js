@@ -178,7 +178,7 @@ function handleGlobalVoicesUpdated(event) {
     });
 }
 
-const TURBO_ENGINES = new Set(['chatterbox_turbo_local', 'chatterbox_turbo_replicate']);
+const TURBO_ENGINES = new Set(['chatterbox_turbo_local', 'chatterbox_turbo_replicate', 'voxcpm_local']);
 const CHATTERBOX_ENGINES = new Set(['chatterbox', ...TURBO_ENGINES]);
 
 function normalizeEngineName(engine) {

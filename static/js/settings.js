@@ -243,15 +243,21 @@ function handleGeminiPresetReset() {
 }
 
 function toggleEngineSettingsSections(engineName) {
-    // Replicate API section is always visible (shared between Kokoro and Chatterbox Replicate)
-    const turboLocalSection = document.getElementById('chatterbox-turbo-local-settings');
-    const turboReplicateSection = document.getElementById('chatterbox-turbo-replicate-settings');
-
-    if (turboLocalSection) {
-        turboLocalSection.style.display = engineName === 'chatterbox_turbo_local' ? 'block' : 'none';
-    }
-    if (turboReplicateSection) {
-        turboReplicateSection.style.display = engineName === 'chatterbox_turbo_replicate' ? 'block' : 'none';
+    // With the new tabbed UI, we auto-switch to the relevant engine tab when the default engine changes
+    const engineTabMap = {
+        'kokoro': 'kokoro',
+        'kokoro_replicate': 'kokoro',
+        'chatterbox_turbo_local': 'chatterbox-local',
+        'chatterbox_turbo_replicate': 'chatterbox-replicate',
+        'voxcpm_local': 'voxcpm'
+    };
+    
+    const targetTab = engineTabMap[engineName];
+    if (targetTab) {
+        const tabBtn = document.querySelector(`.engine-tab-btn[data-engine-tab="${targetTab}"]`);
+        if (tabBtn) {
+            tabBtn.click();
+        }
     }
 }
 
@@ -302,6 +308,50 @@ function setupSettingsListeners() {
     if (presetList) {
         presetList.addEventListener('click', handleGeminiPresetListClick);
     }
+
+    // Settings accordion collapse/expand
+    setupSettingsAccordion();
+    
+    // Engine sub-tabs within Engine Settings
+    setupEngineTabSwitching();
+}
+
+// Settings accordion toggle
+function setupSettingsAccordion() {
+    const headers = document.querySelectorAll('.settings-group-header[data-toggle="settings-group"]');
+    headers.forEach(header => {
+        header.addEventListener('click', () => {
+            const group = header.closest('.settings-group');
+            if (group) {
+                group.classList.toggle('collapsed');
+            }
+        });
+    });
+}
+
+// Engine tab switching within Engine Settings group
+function setupEngineTabSwitching() {
+    const tabButtons = document.querySelectorAll('.engine-tab-btn[data-engine-tab]');
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetTab = btn.dataset.engineTab;
+            
+            // Update button states
+            tabButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            // Update panel visibility
+            const panels = document.querySelectorAll('.engine-panel');
+            panels.forEach(panel => {
+                panel.classList.remove('active');
+            });
+            
+            const targetPanel = document.getElementById(`engine-panel-${targetTab}`);
+            if (targetPanel) {
+                targetPanel.classList.add('active');
+            }
+        });
+    });
 }
 
 function updateSettingsBitrateState() {
@@ -527,6 +577,40 @@ function applySettings(settings) {
         localChunkSize.value = settings.chatterbox_turbo_local_chunk_size ?? 450;
     }
 
+    // VoxCPM Local settings
+    const voxcpmModel = document.getElementById('voxcpm-local-model-id');
+    if (voxcpmModel) {
+        voxcpmModel.value = settings.voxcpm_local_model_id || 'openbmb/VoxCPM1.5';
+    }
+    const voxcpmDevice = document.getElementById('voxcpm-local-device');
+    if (voxcpmDevice) {
+        voxcpmDevice.value = settings.voxcpm_local_device || 'auto';
+    }
+    const voxcpmPrompt = document.getElementById('voxcpm-local-prompt');
+    if (voxcpmPrompt) {
+        voxcpmPrompt.value = settings.voxcpm_local_default_prompt || '';
+    }
+    const voxcpmPromptText = document.getElementById('voxcpm-local-prompt-text');
+    if (voxcpmPromptText) {
+        voxcpmPromptText.value = settings.voxcpm_local_default_prompt_text || '';
+    }
+    const voxcpmCfg = document.getElementById('voxcpm-local-cfg');
+    if (voxcpmCfg) {
+        voxcpmCfg.value = settings.voxcpm_local_cfg_value ?? 2.5;
+    }
+    const voxcpmSteps = document.getElementById('voxcpm-local-steps');
+    if (voxcpmSteps) {
+        voxcpmSteps.value = settings.voxcpm_local_inference_timesteps ?? 20;
+    }
+    const voxcpmNormalize = document.getElementById('voxcpm-local-normalize');
+    if (voxcpmNormalize) {
+        voxcpmNormalize.checked = settings.voxcpm_local_normalize !== false;
+    }
+    const voxcpmDenoise = document.getElementById('voxcpm-local-denoise');
+    if (voxcpmDenoise) {
+        voxcpmDenoise.checked = settings.voxcpm_local_denoise === true;
+    }
+
     // Chatterbox Replicate settings (uses shared replicate_api_key)
     const turboModelInput = document.getElementById('chatterbox-turbo-replicate-model');
     if (turboModelInput) {
@@ -596,6 +680,14 @@ async function saveSettings() {
         chatterbox_turbo_local_norm_loudness: document.getElementById('chatterbox-turbo-local-norm').checked,
         chatterbox_turbo_local_prompt_norm_loudness: document.getElementById('chatterbox-turbo-local-prompt-norm').checked,
         chatterbox_turbo_local_chunk_size: parseInt(document.getElementById('chatterbox-turbo-local-chunk-size').value, 10) || 450,
+        voxcpm_local_model_id: document.getElementById('voxcpm-local-model-id').value,
+        voxcpm_local_device: document.getElementById('voxcpm-local-device').value,
+        voxcpm_local_default_prompt: document.getElementById('voxcpm-local-prompt').value,
+        voxcpm_local_default_prompt_text: document.getElementById('voxcpm-local-prompt-text').value,
+        voxcpm_local_cfg_value: parseFloat(document.getElementById('voxcpm-local-cfg').value) || 2.0,
+        voxcpm_local_inference_timesteps: parseInt(document.getElementById('voxcpm-local-steps').value, 10) || 10,
+        voxcpm_local_normalize: document.getElementById('voxcpm-local-normalize').checked,
+        voxcpm_local_denoise: document.getElementById('voxcpm-local-denoise').checked,
         chatterbox_turbo_replicate_model: document.getElementById('chatterbox-turbo-replicate-model').value,
         chatterbox_turbo_replicate_voice: document.getElementById('chatterbox-turbo-replicate-voice').value,
         chatterbox_turbo_replicate_temperature: parseFloat(document.getElementById('chatterbox-turbo-replicate-temperature').value) || 0.8,
@@ -668,7 +760,15 @@ async function resetSettings() {
         gemini_model: 'gemini-1.5-flash',
         gemini_prompt: '',
         gemini_prompt_presets: [],
-        tts_engine: 'kokoro'
+        tts_engine: 'kokoro',
+        voxcpm_local_model_id: 'openbmb/VoxCPM1.5',
+        voxcpm_local_device: 'auto',
+        voxcpm_local_default_prompt: '',
+        voxcpm_local_default_prompt_text: '',
+        voxcpm_local_cfg_value: 2.5,
+        voxcpm_local_inference_timesteps: 20,
+        voxcpm_local_normalize: true,
+        voxcpm_local_denoise: false
     };
     
     try {

@@ -13,6 +13,7 @@ numpy>=1.24.0,<1.26.0; python_version < "3.12"
 pydub>=0.25.1
 librosa==0.11.0
 resampy>=0.4.2
+soxr>=0.3.0
 pyrubberband>=0.4.0
 replicate>=0.25.0
 requests>=2.31.0
@@ -33,6 +34,10 @@ pyloudnorm>=0.1.0
 omegaconf>=2.3.0
 
 # Note: torch, torchvision, torchaudio, and chatterbox-tts are installed by setup.bat
+
+# VoxCPM 1.5 local runtime
+voxcpm
+funasr
 
 # Extra language-specific dependencies
 pyopenjtalk

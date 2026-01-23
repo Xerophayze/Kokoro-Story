@@ -1,5 +1,52 @@
 const MIN_CHATTERBOX_PROMPT_SECONDS = 5;
 
+// Locale code to human-readable language name mapping
+const LOCALE_NAMES = {
+    'af-ZA': 'Afrikaans', 'am-ET': 'Amharic', 'ar-AE': 'Arabic (UAE)', 'ar-BH': 'Arabic (Bahrain)',
+    'ar-DZ': 'Arabic (Algeria)', 'ar-EG': 'Arabic (Egypt)', 'ar-IQ': 'Arabic (Iraq)', 'ar-JO': 'Arabic (Jordan)',
+    'ar-KW': 'Arabic (Kuwait)', 'ar-LB': 'Arabic (Lebanon)', 'ar-LY': 'Arabic (Libya)', 'ar-MA': 'Arabic (Morocco)',
+    'ar-OM': 'Arabic (Oman)', 'ar-QA': 'Arabic (Qatar)', 'ar-SA': 'Arabic (Saudi)', 'ar-SY': 'Arabic (Syria)',
+    'ar-TN': 'Arabic (Tunisia)', 'ar-YE': 'Arabic (Yemen)', 'az-AZ': 'Azerbaijani', 'bg-BG': 'Bulgarian',
+    'bn-BD': 'Bengali (Bangladesh)', 'bn-IN': 'Bengali (India)', 'bs-BA': 'Bosnian', 'ca-ES': 'Catalan',
+    'cs-CZ': 'Czech', 'cy-GB': 'Welsh', 'da-DK': 'Danish', 'de-AT': 'German (Austria)', 'de-CH': 'German (Swiss)',
+    'de-DE': 'German', 'el-GR': 'Greek', 'en-AU': 'English (AU)', 'en-CA': 'English (CA)', 'en-GB': 'English (UK)',
+    'en-HK': 'English (HK)', 'en-IE': 'English (IE)', 'en-IN': 'English (IN)', 'en-KE': 'English (KE)',
+    'en-NG': 'English (NG)', 'en-NZ': 'English (NZ)', 'en-PH': 'English (PH)', 'en-SG': 'English (SG)',
+    'en-TZ': 'English (TZ)', 'en-US': 'English (US)', 'en-ZA': 'English (ZA)', 'es-AR': 'Spanish (AR)',
+    'es-BO': 'Spanish (BO)', 'es-CL': 'Spanish (CL)', 'es-CO': 'Spanish (CO)', 'es-CR': 'Spanish (CR)',
+    'es-CU': 'Spanish (CU)', 'es-DO': 'Spanish (DO)', 'es-EC': 'Spanish (EC)', 'es-ES': 'Spanish (ES)',
+    'es-GQ': 'Spanish (GQ)', 'es-GT': 'Spanish (GT)', 'es-HN': 'Spanish (HN)', 'es-MX': 'Spanish (MX)',
+    'es-NI': 'Spanish (NI)', 'es-PA': 'Spanish (PA)', 'es-PE': 'Spanish (PE)', 'es-PR': 'Spanish (PR)',
+    'es-PY': 'Spanish (PY)', 'es-SV': 'Spanish (SV)', 'es-US': 'Spanish (US)', 'es-UY': 'Spanish (UY)',
+    'es-VE': 'Spanish (VE)', 'et-EE': 'Estonian', 'eu-ES': 'Basque', 'fa-IR': 'Persian', 'fi-FI': 'Finnish',
+    'fil-PH': 'Filipino', 'fr-BE': 'French (BE)', 'fr-CA': 'French (CA)', 'fr-CH': 'French (CH)', 'fr-FR': 'French',
+    'ga-IE': 'Irish', 'gl-ES': 'Galician', 'gu-IN': 'Gujarati', 'he-IL': 'Hebrew', 'hi-IN': 'Hindi',
+    'hr-HR': 'Croatian', 'hu-HU': 'Hungarian', 'hy-AM': 'Armenian', 'id-ID': 'Indonesian', 'is-IS': 'Icelandic',
+    'it-IT': 'Italian', 'ja-JP': 'Japanese', 'jv-ID': 'Javanese', 'ka-GE': 'Georgian', 'kk-KZ': 'Kazakh',
+    'km-KH': 'Khmer', 'kn-IN': 'Kannada', 'ko-KR': 'Korean', 'lo-LA': 'Lao', 'lt-LT': 'Lithuanian',
+    'lv-LV': 'Latvian', 'mk-MK': 'Macedonian', 'ml-IN': 'Malayalam', 'mn-MN': 'Mongolian', 'mr-IN': 'Marathi',
+    'ms-MY': 'Malay', 'mt-MT': 'Maltese', 'my-MM': 'Burmese', 'nb-NO': 'Norwegian', 'ne-NP': 'Nepali',
+    'nl-BE': 'Dutch (BE)', 'nl-NL': 'Dutch', 'pl-PL': 'Polish', 'ps-AF': 'Pashto', 'pt-BR': 'Portuguese (BR)',
+    'pt-PT': 'Portuguese', 'ro-RO': 'Romanian', 'ru-RU': 'Russian', 'si-LK': 'Sinhala', 'sk-SK': 'Slovak',
+    'sl-SI': 'Slovenian', 'so-SO': 'Somali', 'sq-AL': 'Albanian', 'sr-RS': 'Serbian', 'su-ID': 'Sundanese',
+    'sv-SE': 'Swedish', 'sw-KE': 'Swahili (KE)', 'sw-TZ': 'Swahili (TZ)', 'ta-IN': 'Tamil (IN)',
+    'ta-LK': 'Tamil (LK)', 'ta-MY': 'Tamil (MY)', 'ta-SG': 'Tamil (SG)', 'te-IN': 'Telugu', 'th-TH': 'Thai',
+    'tr-TR': 'Turkish', 'uk-UA': 'Ukrainian', 'ur-IN': 'Urdu (IN)', 'ur-PK': 'Urdu (PK)', 'uz-UZ': 'Uzbek',
+    'vi-VN': 'Vietnamese', 'wuu-CN': 'Wu Chinese', 'yue-CN': 'Cantonese', 'zh-CN': 'Chinese (Mandarin)',
+    'zh-HK': 'Chinese (HK)', 'zh-TW': 'Chinese (TW)', 'zu-ZA': 'Zulu',
+};
+
+function getLanguageDisplayName(localeCode) {
+    if (!localeCode) return '';
+    return LOCALE_NAMES[localeCode] || localeCode;
+}
+
+// Voice dropdown filter state
+let voiceDropdownFilters = {
+    gender: 'all',
+    language: 'all'
+};
+
 function preloadGenerationControls() {
     fetch('/api/settings')
         .then(resp => resp.json())
@@ -28,6 +75,7 @@ function preloadGenerationControls() {
 function handleChatterboxVoicesUpdated(event) {
     const voices = Array.isArray(event?.detail?.voices) ? event.detail.voices : [];
     availableChatterboxVoices = voices;
+    updateVoiceDropdownFilterOptions();
     populateReferenceSelects();
     refreshGlobalChatterboxPreviewButton();
 }
@@ -59,23 +107,6 @@ function updateJobEngineOptionVisibility(engineName) {
     }
     if (jobTurboReplicate) {
         jobTurboReplicate.style.display = engineName === 'chatterbox_turbo_replicate' ? 'grid' : 'none';
-    }
-}
-
-function updateEngineUI(engineName) {
-    updateJobEngineOptionVisibility(engineName);
-    const kokoroCard = document.getElementById('kokoro-default-voice-card');
-    const turboCard = document.getElementById('chatterbox-turbo-voice-card');
-    const isTurbo = engineName === 'chatterbox_turbo_local' || engineName === 'chatterbox_turbo_replicate';
-    if (kokoroCard) {
-        kokoroCard.style.display = isTurbo ? 'none' : 'block';
-    }
-    if (turboCard) {
-        turboCard.style.display = isTurbo ? 'block' : 'none';
-    }
-    updateAssignmentModes(engineName);
-    if (isTurbo) {
-        fetchReferencePrompts();
     }
 }
 
@@ -154,19 +185,23 @@ function hydrateTurboReplicateJobFields(settings) {
 
 function isTurboEngine(engineName) {
     const value = (engineName || '').toLowerCase();
-    return value === 'chatterbox_turbo_local' || value === 'chatterbox_turbo_replicate';
+    return value === 'chatterbox_turbo_local' || value === 'chatterbox_turbo_replicate' || value === 'voxcpm_local';
 }
 
 function updateEngineUI(engineName) {
+    console.log('[updateEngineUI] engineName:', engineName, 'isTurbo:', isTurboEngine(engineName));
     updateJobEngineOptionVisibility(engineName);
     const kokoroCard = document.getElementById('kokoro-default-voice-card');
     const turboCard = document.getElementById('chatterbox-turbo-voice-card');
     const isTurbo = isTurboEngine(engineName);
+    console.log('[updateEngineUI] kokoroCard:', kokoroCard, 'turboCard:', turboCard, 'isTurbo:', isTurbo);
     if (kokoroCard) {
         kokoroCard.style.display = isTurbo ? 'none' : 'block';
+        console.log('[updateEngineUI] set kokoroCard.display to:', kokoroCard.style.display);
     }
     if (turboCard) {
         turboCard.style.display = isTurbo ? 'block' : 'none';
+        console.log('[updateEngineUI] set turboCard.display to:', turboCard.style.display);
     }
     updateAssignmentModes(engineName);
     if (isTurbo) {
@@ -192,7 +227,22 @@ function updateAssignmentModes(engineName) {
     });
 }
 
-function populateReferenceDropdown(selectEl, placeholderText = 'Use preset voice') {
+// Minimum duration requirements per engine (in seconds)
+const ENGINE_MIN_DURATION = {
+    'chatterbox_turbo_local': 5.0,
+    'chatterbox_turbo_replicate': 5.0,
+    'chatterbox': 5.0,
+    'voxcpm_local': 0,  // VoxCPM accepts any duration
+    'kokoro': 0,
+    'kokoro_replicate': 0,
+};
+
+function getMinDurationForEngine(engineName) {
+    const normalized = (engineName || '').toLowerCase().trim();
+    return ENGINE_MIN_DURATION[normalized] ?? 0;
+}
+
+function populateReferenceDropdown(selectEl, placeholderText = 'Use preset voice', engineName = null, filters = null) {
     if (!selectEl) return;
     const previousValue = selectEl.value;
     selectEl.innerHTML = '';
@@ -202,22 +252,107 @@ function populateReferenceDropdown(selectEl, placeholderText = 'Use preset voice
         option.textContent = placeholderText;
         selectEl.appendChild(option);
     }
+    
+    // Get current engine if not provided
+    const currentEngine = engineName || getSelectedJobEngine() || window.runtimeSettings?.tts_engine || 'kokoro';
+    const minDuration = getMinDurationForEngine(currentEngine);
+    
+    // Use provided filters or global filters
+    const activeFilters = filters || voiceDropdownFilters;
+    
+    // Filter and sort voices
+    let filteredVoices = [...availableChatterboxVoices];
+    
+    // Apply gender filter
+    if (activeFilters.gender && activeFilters.gender !== 'all') {
+        filteredVoices = filteredVoices.filter(v => 
+            (v.gender || '').toLowerCase() === activeFilters.gender.toLowerCase()
+        );
+    }
+    
+    // Apply language filter
+    if (activeFilters.language && activeFilters.language !== 'all') {
+        filteredVoices = filteredVoices.filter(v => v.language === activeFilters.language);
+    }
+    
     // Sort voices alphabetically by name
-    const sortedVoices = [...availableChatterboxVoices].sort((a, b) =>
+    const sortedVoices = filteredVoices.sort((a, b) =>
         (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase())
     );
+    
     sortedVoices.forEach(entry => {
         const option = document.createElement('option');
         const promptPath = (entry?.prompt_path || entry?.file_name || '').trim();
         option.value = promptPath;
-        const durationLabel = entry?.duration_seconds ? ` · ${entry.duration_seconds.toFixed(2)}s` : '';
-        option.textContent = `${entry?.name || promptPath}${durationLabel}`;
-        option.dataset.durationSeconds = entry?.duration_seconds ?? '';
+        const duration = entry?.duration_seconds ?? null;
+        const durationLabel = duration !== null ? ` · ${duration.toFixed(1)}s` : '';
+        
+        // Build label with gender and language
+        const gender = entry?.gender ? ` [${entry.gender.charAt(0).toUpperCase()}]` : '';
+        const lang = entry?.language ? ` ${getLanguageDisplayName(entry.language)}` : '';
+        const metaLabel = (gender || lang) ? ` ·${gender}${lang}` : '';
+        
+        option.textContent = `${entry?.name || promptPath}${metaLabel}${durationLabel}`;
+        option.dataset.durationSeconds = duration ?? '';
+        option.dataset.gender = entry?.gender || '';
+        option.dataset.language = entry?.language || '';
+        
+        // Check if duration meets minimum requirement for current engine
+        if (minDuration > 0 && duration !== null && duration < minDuration) {
+            option.disabled = true;
+            option.style.color = '#ff6b6b';
+            option.textContent = `${entry?.name || promptPath}${metaLabel}${durationLabel} (too short)`;
+        }
+        
         selectEl.appendChild(option);
     });
+    
     if (previousValue) {
-        selectEl.value = previousValue;
+        // Only restore if the option is not disabled
+        const prevOption = selectEl.querySelector(`option[value="${CSS.escape(previousValue)}"]`);
+        if (prevOption && !prevOption.disabled) {
+            selectEl.value = previousValue;
+        }
     }
+}
+
+function updateVoiceDropdownFilterOptions() {
+    // Collect unique genders and languages from available voices
+    const genders = new Set();
+    const languages = new Set();
+    
+    availableChatterboxVoices.forEach(v => {
+        if (v.gender) genders.add(v.gender);
+        if (v.language) languages.add(v.language);
+    });
+    
+    // Update gender filter selects
+    document.querySelectorAll('.voice-filter-gender').forEach(select => {
+        const currentValue = select.value;
+        select.innerHTML = '<option value="all">All Genders</option>';
+        [...genders].sort().forEach(g => {
+            const opt = document.createElement('option');
+            opt.value = g.toLowerCase();
+            opt.textContent = g;
+            select.appendChild(opt);
+        });
+        if (currentValue) select.value = currentValue;
+    });
+    
+    // Update language filter selects
+    document.querySelectorAll('.voice-filter-language').forEach(select => {
+        const currentValue = select.value;
+        select.innerHTML = '<option value="all">All Languages</option>';
+        [...languages].sort((a, b) => 
+            getLanguageDisplayName(a).localeCompare(getLanguageDisplayName(b))
+        ).forEach(lang => {
+            const opt = document.createElement('option');
+            opt.value = lang;
+            opt.textContent = getLanguageDisplayName(lang);
+            select.appendChild(opt);
+        });
+        if (currentValue) select.value = currentValue;
+    });
 }
 
 function populatePresetSelect(selectEl, selectedValue, placeholderText = 'Select a saved voice') {
@@ -1041,7 +1176,28 @@ document.addEventListener('DOMContentLoaded', () => {
     initAutoAnalyze();
     const chapterCheckbox = document.getElementById('split-chapters-checkbox');
     syncFullStoryOption(chapterCheckbox, true);
+    initVoiceDropdownFilters();
 });
+
+function initVoiceDropdownFilters() {
+    // Set up filter change handlers for main voice dropdown
+    const genderFilter = document.getElementById('main-voice-filter-gender');
+    const languageFilter = document.getElementById('main-voice-filter-language');
+    
+    if (genderFilter) {
+        genderFilter.addEventListener('change', () => {
+            voiceDropdownFilters.gender = genderFilter.value;
+            populateReferenceSelects();
+        });
+    }
+    
+    if (languageFilter) {
+        languageFilter.addEventListener('change', () => {
+            voiceDropdownFilters.language = languageFilter.value;
+            populateReferenceSelects();
+        });
+    }
+}
 
 function initAutoAnalyze() {
     const input = document.getElementById('input-text');
@@ -1174,6 +1330,8 @@ function setupEventListeners() {
             const engineName = (event.target.value || '').toLowerCase();
             updateEngineUI(engineName);
             updateModeIndicator(engineName);
+            // Refresh voice prompt dropdowns to apply engine-specific duration filtering
+            populateReferenceSelects();
             const currentText = document.getElementById('input-text')?.value?.trim();
             if (currentText && lastAnalyzedText && currentText === lastAnalyzedText) {
                 analyzeText({ auto: true });

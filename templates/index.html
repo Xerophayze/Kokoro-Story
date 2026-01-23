@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TTS-Story - Multi-Voice TTS</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2326324a'/%3E%3Cpath d='M18 22h6v20h-6zM28 22h6v20h-6zM38 22h6v20h-6z' fill='%23a78bfa'/%3E%3Ccircle cx='32' cy='16' r='4' fill='%23fcd34d'/%3E%3Ccircle cx='32' cy='48' r='4' fill='%23fcd34d'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="/static/css/style.css?v=9">
+    <link rel="stylesheet" href="/static/css/style.css?v=21">
 </head>
 <body>
     <div class="container">
@@ -16,7 +16,6 @@
                 <span id="mode-indicator">Mode: <strong id="current-mode">Loading...</strong></span>
                 <span id="cuda-indicator">CUDA: <strong id="cuda-status">Checking...</strong></span>
             </div>
-
         </header>
 
         <div class="tabs">
@@ -91,6 +90,7 @@
                                     <option value="kokoro_replicate">Kokoro · Replicate</option>
                                     <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
                                     <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
+                                    <option value="voxcpm_local">VoxCPM 1.5 · Local GPU</option>
                                 </select>
                             </div>
                         </div>
@@ -114,13 +114,21 @@
                         <div id="chatterbox-turbo-voice-card" class="engine-subcard" style="display: none;">
                             <div class="default-voice-header">
                                 <div>
-                                    <h2>Chatterbox Turbo</h2>
-                                    <p class="help-text">Cloned reference prompts provide richer character control.</p>
+                                    <h2>Chatterbox / VoxCPM Reference Prompt</h2>
+                                    <p class="help-text">Use saved reference prompts for Chatterbox Turbo or VoxCPM voice cloning.</p>
                                 </div>
                             </div>
                             <div class="engine-options-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 10px;">
                                 <div class="form-group">
                                     <label for="chatterbox-reference-select">Reference Prompt</label>
+                                    <div class="voice-select-filters" style="display: flex; gap: 8px; margin-bottom: 6px;">
+                                        <select class="voice-filter-gender" id="main-voice-filter-gender" style="flex: 1; padding: 4px;">
+                                            <option value="all">All Genders</option>
+                                        </select>
+                                        <select class="voice-filter-language" id="main-voice-filter-language" style="flex: 1; padding: 4px;">
+                                            <option value="all">All Languages</option>
+                                        </select>
+                                    </div>
                                     <div class="reference-select-row">
                                         <select id="chatterbox-reference-select" data-meta-target="chatterbox-reference-details">
                                             <option value="">Use preset voice</option>
@@ -134,7 +142,7 @@
                                             Play
                                         </button>
                                     </div>
-                                    <small>Manage saved prompts in Available Voices → Chatterbox Voices.</small>
+                                    <small>Manage saved prompts in Available Voices → Voice Prompts.</small>
                                     <div class="help-text" id="chatterbox-reference-details"></div>
                                 </div>
                             </div>
@@ -350,8 +358,8 @@
             <div class="section" id="chatterbox-voices-section">
                 <div class="custom-voices-header">
                     <div>
-                        <h2>Chatterbox Voices</h2>
-                        <p class="help-text">Upload Turbo reference clips (5–10s) and assign friendly names for reuse.</p>
+                        <h2>Voice Prompts</h2>
+                        <p class="help-text">Voice samples for Chatterbox and VoxCPM. Upload your own or browse 300+ external voices.</p>
                     </div>
                 </div>
                 <form id="chatterbox-voice-form" class="chatterbox-voice-form">
@@ -371,268 +379,390 @@
                     <input type="file" id="chatterbox-dropzone-input" accept=".wav,.mp3,.m4a,.flac,.ogg" multiple>
                     <div class="dropzone-content">
                         <h3>Bulk import via drag & drop</h3>
-                        <p>Drop multiple WAV/MP3 clips (5–10s). We’ll keep any clips ≥5s and name them after the file.</p>
+                        <p>Drop multiple WAV/MP3 clips (5–10s). We'll keep any clips ≥5s and name them after the file.</p>
                         <button type="button" class="btn btn-secondary btn-sm">Browse Files</button>
                     </div>
                     <div class="dropzone-status" id="chatterbox-dropzone-status"></div>
                 </div>
-                <div id="chatterbox-voice-list" class="chatterbox-voice-list">
-                    <p class="help-text">No saved voices yet. Add one above.</p>
+                
+                <!-- Voice List Filters -->
+                <div class="voice-list-controls" id="voice-list-controls">
+                    <div class="voice-filter-row">
+                        <input type="text" id="voice-search-input" placeholder="Search voices..." class="voice-search-input">
+                        <select id="voice-filter-source" class="voice-filter-select">
+                            <option value="all">All Sources</option>
+                            <option value="local">Local Only</option>
+                            <option value="external">External (GitHub)</option>
+                        </select>
+                        <select id="voice-filter-gender" class="voice-filter-select">
+                            <option value="all">All Genders</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                        </select>
+                        <select id="voice-filter-language" class="voice-filter-select">
+                            <option value="all">All Languages</option>
+                        </select>
+                        <button type="button" class="btn btn-secondary btn-sm" id="load-external-voices-btn">
+                            Load External Voices
+                        </button>
+                    </div>
+                    <div class="voice-list-stats" id="voice-list-stats">
+                        <span id="voice-count-display">0 voices</span>
+                    </div>
+                </div>
+                
+                <!-- Voice List Table -->
+                <div class="voice-list-table-container">
+                    <table class="voice-list-table" id="chatterbox-voice-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="name">Name <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="gender">Gender <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="language">Language <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="duration">Duration <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="source">Source <span class="sort-icon"></span></th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="chatterbox-voice-list">
+                            <tr><td colspan="6" class="help-text">No saved voices yet. Add one above.</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
 
         <!-- Settings Tab -->
         <div id="settings-tab" class="tab-content">
-            <div class="section">
-                <h2>Defaults</h2>
-                <p class="help-text">
-                    Pick the engine, file format, and MP3 bitrate that load every time TTS-Story starts. You can still override them per job on the Generate tab.
-                </p>
-                <div class="defaults-grid">
-                    <div class="form-group">
-                        <label for="settings-tts-engine">Default Engine</label>
-                        <select id="settings-tts-engine">
-                            <option value="kokoro">Kokoro · Local GPU</option>
-                            <option value="kokoro_replicate">Kokoro · Replicate</option>
-                            <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
-                            <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="settings-output-format">Default File Format</label>
-                        <select id="settings-output-format">
-                            <option value="mp3">MP3</option>
-                            <option value="wav">WAV</option>
-                            <option value="ogg">OGG</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="settings-output-bitrate">Default MP3 Bitrate</label>
-                        <select id="settings-output-bitrate">
-                            <option value="64">64 kbps</option>
-                            <option value="96">96 kbps</option>
-                            <option value="128">128 kbps</option>
-                            <option value="160">160 kbps</option>
-                            <option value="192">192 kbps</option>
-                            <option value="224">224 kbps</option>
-                            <option value="256">256 kbps</option>
-                        </select>
-                        <small>Only used when the default format is MP3.</small>
-                    </div>
-                </div>
-            </div>
+            <div class="settings-accordion">
 
-            <div class="section" id="replicate-settings">
-                <h2>Replicate API</h2>
-                <p class="help-text">
-                    Configure your Replicate API token for cloud-based TTS. This token is used by both <strong>Kokoro · Replicate</strong> and <strong>Chatterbox · Replicate</strong> engines.
-                </p>
-                <div class="form-group">
-                    <label for="kokoro-replicate-api-key">Replicate API Token</label>
-                    <input type="password" id="kokoro-replicate-api-key" placeholder="r8_..." autocomplete="new-password">
-                    <small>Get your API key from <a href="https://replicate.com" target="_blank">replicate.com</a></small>
-                </div>
-            </div>
-
-            <div class="section" id="chatterbox-turbo-local-settings" style="display: none;">
-                <h2>Chatterbox · Local GPU</h2>
-                <p class="help-text">
-                    Runs the open-source Chatterbox model locally (installed via <code>setup.bat</code>). Requires a CUDA-capable GPU with ~8GB VRAM.
-                </p>
-                <div class="form-group">
-                    <label for="chatterbox-turbo-local-device">Preferred Device</label>
-                    <input type="text" id="chatterbox-turbo-local-device" placeholder="auto, cuda, cuda:1, cpu">
-                    <small>Leave blank for auto-detect (CUDA if available).</small>
-                </div>
-                <div class="form-group">
-                    <label for="chatterbox-turbo-local-prompt">Default Reference Prompt</label>
-                    <input type="text" id="chatterbox-turbo-local-prompt" placeholder="data/voice_prompts/default.wav">
-                    <small>Path to a 5–10s WAV/MP3 clip used when speakers do not supply their own prompt.</small>
-                </div>
-                <div class="form-group">
-                    <label for="chatterbox-turbo-local-chunk-size">Text Chunk Size (characters)</label>
-                    <input type="number" id="chatterbox-turbo-local-chunk-size" min="100" max="1000" step="50" value="450">
-                    <small>Maximum characters per audio chunk. Lower values (200-300) may reduce distortion. Default: 450.</small>
-                </div>
-                <div class="three-column-grid">
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-local-temperature">Temperature</label>
-                        <input type="number" id="chatterbox-turbo-local-temperature" min="0.05" max="2" step="0.05">
+                <!-- Quick Settings (Always Expanded) -->
+                <div class="settings-group" id="quick-settings-group">
+                    <div class="settings-group-header" data-toggle="settings-group">
+                        <h3><span class="group-icon">⚡</span> Quick Settings</h3>
+                        <span class="collapse-icon">▼</span>
                     </div>
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-local-top-p">Top P</label>
-                        <input type="number" id="chatterbox-turbo-local-top-p" min="0.1" max="1" step="0.01">
-                    </div>
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-local-top-k">Top K</label>
-                        <input type="number" id="chatterbox-turbo-local-top-k" min="1" max="4000" step="1">
-                    </div>
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-local-rep-penalty">Repetition Penalty</label>
-                        <input type="number" id="chatterbox-turbo-local-rep-penalty" min="1" max="2" step="0.05">
-                    </div>
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-local-cfg-weight">CFG Weight</label>
-                        <input type="number" id="chatterbox-turbo-local-cfg-weight" min="0" max="2" step="0.05">
-                    </div>
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-local-exaggeration">Exaggeration</label>
-                        <input type="number" id="chatterbox-turbo-local-exaggeration" min="0" max="2" step="0.05">
-                    </div>
-                </div>
-                <div class="form-group checkbox-group">
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="chatterbox-turbo-local-norm">
-                        Normalize output loudness
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="chatterbox-turbo-local-prompt-norm">
-                        Normalize prompt loudness before embedding
-                    </label>
-                </div>
-            </div>
-
-            <div class="section" id="chatterbox-turbo-replicate-settings" style="display: none;">
-                <h2>Chatterbox · Replicate</h2>
-                <p class="help-text">
-                    Calls the hosted Chatterbox model on Replicate (<code>resemble-ai/chatterbox-turbo</code>). Uses the same Replicate API token configured in the Kokoro · Replicate section above.
-                </p>
-                <div class="form-group">
-                    <label for="chatterbox-turbo-replicate-model">Model Version</label>
-                    <input type="text" id="chatterbox-turbo-replicate-model" placeholder="resemble-ai/chatterbox-turbo:95c8...">
-                </div>
-                <div class="form-group">
-                    <label for="chatterbox-turbo-replicate-voice">Default Voice Preset</label>
-                    <input type="text" id="chatterbox-turbo-replicate-voice" placeholder="Andy, Madison, ...">
-                    <small>Used when a speaker does not provide their own reference audio.</small>
-                </div>
-                <div class="three-column-grid">
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-replicate-temperature">Temperature</label>
-                        <input type="number" id="chatterbox-turbo-replicate-temperature" min="0.05" max="2" step="0.05">
-                    </div>
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-replicate-top-p">Top P</label>
-                        <input type="number" id="chatterbox-turbo-replicate-top-p" min="0.1" max="1" step="0.01">
-                    </div>
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-replicate-top-k">Top K</label>
-                        <input type="number" id="chatterbox-turbo-replicate-top-k" min="1" max="2000" step="1">
-                    </div>
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-replicate-rep-penalty">Repetition Penalty</label>
-                        <input type="number" id="chatterbox-turbo-replicate-rep-penalty" min="1" max="2" step="0.05">
-                    </div>
-                    <div class="form-group">
-                        <label for="chatterbox-turbo-replicate-seed">Seed (optional)</label>
-                        <input type="number" id="chatterbox-turbo-replicate-seed" min="0" step="1">
-                        <small>Leave blank for random seeds.</small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="section" id="gemini-settings">
-                <h2>Gemini Pre-Processing</h2>
-                <p class="help-text">
-                    Configure the Google Gemini prompt that will clean up or enhance each chapter before TTS processing.
-                </p>
-                <div class="form-group">
-                    <label for="gemini-api-key">Gemini API Key</label>
-                    <input type="password" id="gemini-api-key" placeholder="AIza...">
-                    <small>Generate a key at <a href="https://makersuite.google.com/app/apikey" target="_blank">makersuite.google.com</a>.</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="gemini-model">Model</label>
-                    <select id="gemini-model">
-                        <option value="gemini-1.5-flash">gemini-1.5-flash</option>
-                        <option value="gemini-1.5-pro">gemini-1.5-pro</option>
-                        <option value="gemini-1.0-pro-latest">gemini-1.0-pro-latest</option>
-                    </select>
-                    <div class="button-group" style="margin-top: 10px;">
-                        <button type="button" id="fetch-gemini-models-btn" class="btn btn-secondary">Fetch Available Models</button>
-                    </div>
-                    <p id="gemini-models-status" class="help-text" style="margin-top: 8px;">
-                        Provide an API key, then click the button to load models directly from Google Gemini.
-                    </p>
-                </div>
-
-                <div class="form-group">
-                    <label for="gemini-prompt">Prompt Prefix</label>
-                    <textarea id="gemini-prompt" rows="4" placeholder="Provide direction that Gemini should follow before each chapter."></textarea>
-                    <small>This prompt is prepended before each chapter's text. Leave blank to send the raw chapter.</small>
-                </div>
-                <div class="form-group">
-                    <label>Prompt Presets</label>
-                    <p class="help-text">Create named prompt prefixes you can quickly pick on the Generate tab.</p>
-                    <div id="gemini-preset-list" class="gemini-preset-list" data-empty-text="No prompt presets yet. Save one below."></div>
-                    <div class="gemini-preset-form">
-                        <div class="compact-field">
-                            <label for="gemini-preset-title">Preset Title</label>
-                            <input id="gemini-preset-title" type="text" placeholder="e.g., Friendly Narrator Cleanup">
+                    <div class="settings-group-content">
+                        <p class="help-text" style="margin-top:0;">Default engine and output format used when TTS-Story starts.</p>
+                        <div class="quick-settings-grid">
+                            <div class="form-group">
+                                <label for="settings-tts-engine">Default Engine</label>
+                                <select id="settings-tts-engine">
+                                    <option value="kokoro">Kokoro · Local GPU</option>
+                                    <option value="kokoro_replicate">Kokoro · Replicate</option>
+                                    <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
+                                    <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
+                                    <option value="voxcpm_local">VoxCPM 1.5 · Local GPU</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="settings-output-format">File Format</label>
+                                <select id="settings-output-format">
+                                    <option value="mp3">MP3</option>
+                                    <option value="wav">WAV</option>
+                                    <option value="ogg">OGG</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="settings-output-bitrate">MP3 Bitrate</label>
+                                <select id="settings-output-bitrate">
+                                    <option value="64">64 kbps</option>
+                                    <option value="96">96 kbps</option>
+                                    <option value="128">128 kbps</option>
+                                    <option value="160">160 kbps</option>
+                                    <option value="192">192 kbps</option>
+                                    <option value="224">224 kbps</option>
+                                    <option value="256">256 kbps</option>
+                                </select>
+                            </div>
                         </div>
-                        <div class="compact-field">
-                            <label for="gemini-preset-text">Prompt Prefix</label>
-                            <textarea id="gemini-preset-text" rows="3" placeholder="Full instructions that should precede the chapter text."></textarea>
-                        </div>
-                        <div class="gemini-preset-form-actions">
-                            <button type="button" id="save-gemini-preset-btn" class="btn btn-primary btn-sm">Save Preset</button>
-                            <button type="button" id="reset-gemini-preset-btn" class="btn btn-ghost btn-sm">Clear</button>
-                        </div>
-                        <p class="help-text" id="gemini-preset-form-hint">Fill both fields to create a new preset, or choose one above and click Edit to update it.</p>
                     </div>
                 </div>
+
+                <!-- Engine Settings (Tabbed) -->
+                <div class="settings-group" id="engine-settings-group">
+                    <div class="settings-group-header" data-toggle="settings-group">
+                        <h3><span class="group-icon">🔧</span> Engine Settings</h3>
+                        <span class="collapse-icon">▼</span>
+                    </div>
+                    <div class="settings-group-content">
+                        <div class="engine-tabs">
+                            <button type="button" class="engine-tab-btn active" data-engine-tab="kokoro">Kokoro</button>
+                            <button type="button" class="engine-tab-btn" data-engine-tab="chatterbox-local">Chatterbox Local</button>
+                            <button type="button" class="engine-tab-btn" data-engine-tab="chatterbox-replicate">Chatterbox Cloud</button>
+                            <button type="button" class="engine-tab-btn" data-engine-tab="voxcpm">VoxCPM 1.5</button>
+                            <button type="button" class="engine-tab-btn" data-engine-tab="api-keys">API Keys</button>
+                        </div>
+
+                        <!-- Kokoro Panel -->
+                        <div class="engine-panel active" id="engine-panel-kokoro">
+                            <p class="help-text" style="margin-top:0;">Kokoro uses built-in voices. Configure the default voice on the Generate tab.</p>
+                            <p class="help-text">No additional settings required for local Kokoro. For Replicate, add your API key in the API Keys tab.</p>
+                        </div>
+
+                        <!-- Chatterbox Local Panel -->
+                        <div class="engine-panel" id="engine-panel-chatterbox-local">
+                            <p class="help-text" style="margin-top:0;">Local Chatterbox Turbo. Requires CUDA GPU with ~8GB VRAM.</p>
+                            <div class="settings-form-grid">
+                                <div class="form-group">
+                                    <label for="chatterbox-turbo-local-device">Device</label>
+                                    <input type="text" id="chatterbox-turbo-local-device" placeholder="auto">
+                                    <small>auto, cuda, cuda:1, cpu</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="chatterbox-turbo-local-chunk-size">Chunk Size (chars)</label>
+                                    <input type="number" id="chatterbox-turbo-local-chunk-size" min="100" max="1000" step="50" value="450">
+                                </div>
+                                <div class="form-group">
+                                    <label for="chatterbox-turbo-local-prompt">Default Prompt</label>
+                                    <input type="text" id="chatterbox-turbo-local-prompt" placeholder="data/voice_prompts/...">
+                                </div>
+                            </div>
+                            <div class="settings-subsection" style="margin-top:16px;">
+                                <h4>Generation Parameters</h4>
+                                <div class="settings-form-grid">
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-local-temperature">Temperature</label>
+                                        <input type="number" id="chatterbox-turbo-local-temperature" min="0.05" max="2" step="0.05">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-local-top-p">Top P</label>
+                                        <input type="number" id="chatterbox-turbo-local-top-p" min="0.1" max="1" step="0.01">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-local-top-k">Top K</label>
+                                        <input type="number" id="chatterbox-turbo-local-top-k" min="1" max="4000" step="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-local-rep-penalty">Rep. Penalty</label>
+                                        <input type="number" id="chatterbox-turbo-local-rep-penalty" min="1" max="2" step="0.05">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-local-cfg-weight">CFG Weight</label>
+                                        <input type="number" id="chatterbox-turbo-local-cfg-weight" min="0" max="2" step="0.05">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-local-exaggeration">Exaggeration</label>
+                                        <input type="number" id="chatterbox-turbo-local-exaggeration" min="0" max="2" step="0.05">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group checkbox-group" style="margin-top:12px;">
+                                <label style="display:flex;align-items:center;gap:8px;">
+                                    <input type="checkbox" id="chatterbox-turbo-local-norm">
+                                    Normalize output loudness
+                                </label>
+                                <label style="display:flex;align-items:center;gap:8px;">
+                                    <input type="checkbox" id="chatterbox-turbo-local-prompt-norm">
+                                    Normalize prompt loudness
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Chatterbox Replicate Panel -->
+                        <div class="engine-panel" id="engine-panel-chatterbox-replicate">
+                            <p class="help-text" style="margin-top:0;">Cloud-hosted Chatterbox on Replicate. Requires API key.</p>
+                            <div class="settings-form-grid">
+                                <div class="form-group">
+                                    <label for="chatterbox-turbo-replicate-model">Model Version</label>
+                                    <input type="text" id="chatterbox-turbo-replicate-model" placeholder="resemble-ai/chatterbox-turbo:...">
+                                </div>
+                                <div class="form-group">
+                                    <label for="chatterbox-turbo-replicate-voice">Default Voice</label>
+                                    <input type="text" id="chatterbox-turbo-replicate-voice" placeholder="Andy, Madison...">
+                                </div>
+                            </div>
+                            <div class="settings-subsection" style="margin-top:16px;">
+                                <h4>Generation Parameters</h4>
+                                <div class="settings-form-grid">
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-replicate-temperature">Temperature</label>
+                                        <input type="number" id="chatterbox-turbo-replicate-temperature" min="0.05" max="2" step="0.05">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-replicate-top-p">Top P</label>
+                                        <input type="number" id="chatterbox-turbo-replicate-top-p" min="0.1" max="1" step="0.01">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-replicate-top-k">Top K</label>
+                                        <input type="number" id="chatterbox-turbo-replicate-top-k" min="1" max="2000" step="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-replicate-rep-penalty">Rep. Penalty</label>
+                                        <input type="number" id="chatterbox-turbo-replicate-rep-penalty" min="1" max="2" step="0.05">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="chatterbox-turbo-replicate-seed">Seed</label>
+                                        <input type="number" id="chatterbox-turbo-replicate-seed" min="0" step="1" placeholder="Random">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- VoxCPM Panel -->
+                        <div class="engine-panel" id="engine-panel-voxcpm">
+                            <p class="help-text" style="margin-top:0;">VoxCPM 1.5 for expressive speech and voice cloning. Uses same prompts as Chatterbox.</p>
+                            <div class="settings-form-grid">
+                                <div class="form-group">
+                                    <label for="voxcpm-local-model-id">Model ID</label>
+                                    <input type="text" id="voxcpm-local-model-id" placeholder="openbmb/VoxCPM1.5">
+                                </div>
+                                <div class="form-group">
+                                    <label for="voxcpm-local-device">Device</label>
+                                    <input type="text" id="voxcpm-local-device" placeholder="auto">
+                                    <small>auto, cuda, cpu</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="voxcpm-local-prompt">Default Prompt</label>
+                                    <input type="text" id="voxcpm-local-prompt" placeholder="data/voice_prompts/...">
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-top:12px;">
+                                <label for="voxcpm-local-prompt-text">Prompt Transcript</label>
+                                <input type="text" id="voxcpm-local-prompt-text" placeholder="Transcript of reference audio (auto-generated if blank)">
+                                <small>VoxCPM auto-transcribes reference audio. Manual entry optional.</small>
+                            </div>
+                            <div class="settings-subsection" style="margin-top:16px;">
+                                <h4>Generation Parameters</h4>
+                                <div class="settings-form-grid">
+                                    <div class="form-group">
+                                        <label for="voxcpm-local-cfg">CFG Guidance</label>
+                                        <input type="number" id="voxcpm-local-cfg" min="0.1" max="5" step="0.1">
+                                        <small>2.0-3.0 recommended</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="voxcpm-local-steps">Timesteps</label>
+                                        <input type="number" id="voxcpm-local-steps" min="1" max="50" step="1">
+                                        <small>10-20 for speed/quality</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group checkbox-group" style="margin-top:12px;">
+                                <label style="display:flex;align-items:center;gap:8px;">
+                                    <input type="checkbox" id="voxcpm-local-normalize">
+                                    Normalize text (numbers, abbreviations)
+                                </label>
+                                <label style="display:flex;align-items:center;gap:8px;">
+                                    <input type="checkbox" id="voxcpm-local-denoise">
+                                    Enable denoise (limits to 16kHz)
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- API Keys Panel -->
+                        <div class="engine-panel" id="engine-panel-api-keys">
+                            <p class="help-text" style="margin-top:0;">API keys for cloud-based engines.</p>
+                            <div class="form-group">
+                                <label for="kokoro-replicate-api-key">Replicate API Token</label>
+                                <input type="password" id="kokoro-replicate-api-key" placeholder="r8_..." autocomplete="new-password">
+                                <small>Used by Kokoro Replicate and Chatterbox Replicate. Get key from <a href="https://replicate.com" target="_blank">replicate.com</a></small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Audio & Generation Settings -->
+                <div class="settings-group collapsed" id="audio-settings-group">
+                    <div class="settings-group-header" data-toggle="settings-group">
+                        <h3><span class="group-icon">🎬</span> Audio & Generation</h3>
+                        <span class="collapse-icon">▼</span>
+                    </div>
+                    <div class="settings-group-content">
+                        <div class="settings-form-grid">
+                            <div class="form-group">
+                                <label for="chunk-size">Chunk Size (words)</label>
+                                <input type="number" id="chunk-size" value="500" min="100" max="1000" step="50">
+                                <small>Words per audio chunk</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="crossfade">Crossfade (sec)</label>
+                                <input type="number" id="crossfade" value="0.1" min="0" max="1" step="0.05">
+                                <small>Smooth transitions</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="intro-silence">Intro Silence (ms)</label>
+                                <input type="number" id="intro-silence" value="0" min="0" max="2000" step="100">
+                            </div>
+                            <div class="form-group">
+                                <label for="inter-silence">Segment Silence (ms)</label>
+                                <input type="number" id="inter-silence" value="0" min="0" max="2000" step="100">
+                            </div>
+                            <div class="form-group">
+                                <label for="parallel-chunks">Parallel Chunks</label>
+                                <input type="number" id="parallel-chunks" value="3" min="1" max="25" step="1">
+                                <small>Replicate only (1-25)</small>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-top:16px;">
+                            <label for="speed">Speech Speed: <span id="speed-value">1.0x</span></label>
+                            <input type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0">
+                        </div>
+                        <div class="form-group checkbox-group" style="margin-top:12px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="cleanup-vram-after-job">
+                                Unload GPU model after job (saves VRAM, slower restart)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gemini Pre-Processing -->
+                <div class="settings-group collapsed" id="gemini-settings-group">
+                    <div class="settings-group-header" data-toggle="settings-group">
+                        <h3><span class="group-icon">🤖</span> Gemini Pre-Processing</h3>
+                        <span class="collapse-icon">▼</span>
+                    </div>
+                    <div class="settings-group-content">
+                        <p class="help-text" style="margin-top:0;">Use Google Gemini to clean up or enhance text before TTS.</p>
+                        <div class="settings-form-grid">
+                            <div class="form-group">
+                                <label for="gemini-api-key">Gemini API Key</label>
+                                <input type="password" id="gemini-api-key" placeholder="AIza...">
+                                <small><a href="https://makersuite.google.com/app/apikey" target="_blank">Get key</a></small>
+                            </div>
+                            <div class="form-group">
+                                <label for="gemini-model">Model</label>
+                                <select id="gemini-model">
+                                    <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                                    <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                                    <option value="gemini-1.0-pro-latest">gemini-1.0-pro-latest</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="button-group" style="margin-top: 10px;">
+                            <button type="button" id="fetch-gemini-models-btn" class="btn btn-secondary btn-sm">Fetch Models</button>
+                            <span id="gemini-models-status" class="help-text" style="margin-left:10px;"></span>
+                        </div>
+                        <div class="form-group" style="margin-top:16px;">
+                            <label for="gemini-prompt">Prompt Prefix</label>
+                            <textarea id="gemini-prompt" rows="3" placeholder="Instructions prepended to each chapter..."></textarea>
+                        </div>
+                        <div class="settings-subsection" style="margin-top:16px;">
+                            <h4>Prompt Presets</h4>
+                            <div id="gemini-preset-list" class="gemini-preset-list" data-empty-text="No presets yet."></div>
+                            <div class="gemini-preset-form" style="margin-top:12px;">
+                                <div class="settings-form-grid">
+                                    <div class="form-group">
+                                        <label for="gemini-preset-title">Preset Name</label>
+                                        <input id="gemini-preset-title" type="text" placeholder="e.g., Narrator Cleanup">
+                                    </div>
+                                </div>
+                                <div class="form-group" style="margin-top:8px;">
+                                    <label for="gemini-preset-text">Preset Prompt</label>
+                                    <textarea id="gemini-preset-text" rows="2" placeholder="Full instructions..."></textarea>
+                                </div>
+                                <div class="gemini-preset-form-actions" style="margin-top:8px;">
+                                    <button type="button" id="save-gemini-preset-btn" class="btn btn-primary btn-sm">Save Preset</button>
+                                    <button type="button" id="reset-gemini-preset-btn" class="btn btn-ghost btn-sm">Clear</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
-            <div class="section">
-                <h2>Generation Settings</h2>
-                <div class="form-group">
-                    <label for="chunk-size">Chunk Size (words)</label>
-                    <input type="number" id="chunk-size" value="500" min="100" max="1000" step="50">
-                    <small>Smaller chunks = more API calls but better memory usage</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="speed">Speech Speed</label>
-                    <input type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0">
-                    <span id="speed-value">1.0x</span>
-                </div>
-
-                <div class="form-group">
-                    <label for="crossfade">Crossfade Duration (seconds)</label>
-                    <input type="number" id="crossfade" value="0.1" min="0" max="1" step="0.05">
-                    <small>Smooth transition between audio chunks</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="intro-silence">Intro Silence (milliseconds)</label>
-                    <input type="number" id="intro-silence" value="0" min="0" max="2000" step="100">
-                    <small>Empty space added before the very first line of audio.</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="inter-silence">Silence Between Segments (milliseconds)</label>
-                    <input type="number" id="inter-silence" value="0" min="0" max="2000" step="100">
-                    <small>Adds a pause after each generated chunk before the next one begins.</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="parallel-chunks">Replicate Parallel Chunk Processing</label>
-                    <input type="number" id="parallel-chunks" value="3" min="1" max="25" step="1">
-                    <small>Number of chunks to process simultaneously (1-25) when using Replicate API. Higher values speed up cloud API generation. Only applies to Replicate engines.</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="cleanup-vram-after-job">
-                        <input type="checkbox" id="cleanup-vram-after-job">
-                        Unload GPU model after job completion
-                    </label>
-                    <small>Free VRAM after each job completes. Reduces memory usage but adds ~5-10s model reload time for the next job. Recommended if running other GPU applications.</small>
-                </div>
-            </div>
-
-            <div class="button-group">
+            <div class="button-group" style="margin-top:20px;">
                 <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
                 <button id="reset-settings-btn" class="btn btn-secondary">Reset to Defaults</button>
             </div>
@@ -701,10 +831,48 @@
         </div>
     </div>
 
-    <script src="/static/js/main.js?v=17"></script>
-    <script src="/static/js/queue.js?v=2"></script>
-    <script src="/static/js/library.js?v=6"></script>
-    <script src="/static/js/voice-manager.js?v=7"></script>
-    <script src="/static/js/settings.js?v=6"></script>
+    <!-- Edit Voice Metadata Modal -->
+    <div id="edit-voice-modal-overlay" class="modal-overlay hidden"></div>
+    <div id="edit-voice-modal" class="modal hidden">
+        <div class="modal-header">
+            <h3>Edit Voice</h3>
+            <button class="modal-close" id="edit-voice-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="edit-voice-form">
+                <input type="hidden" id="edit-voice-id">
+                <div class="form-group">
+                    <label for="edit-voice-name">Display Name</label>
+                    <input type="text" id="edit-voice-name" placeholder="e.g., Sonia British Female">
+                    <small>A friendly name for this voice prompt.</small>
+                </div>
+                <div class="form-group">
+                    <label for="edit-voice-gender">Gender</label>
+                    <select id="edit-voice-gender">
+                        <option value="">— Not specified —</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="edit-voice-language">Language</label>
+                    <select id="edit-voice-language">
+                        <option value="">— Not specified —</option>
+                    </select>
+                    <small>The language/accent of this voice sample.</small>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" id="edit-voice-cancel">Cancel</button>
+            <button class="btn btn-primary" id="edit-voice-save">Save Changes</button>
+        </div>
+    </div>
+
+    <script src="/static/js/main.js?v=21"></script>
+    <script src="/static/js/queue.js?v=3"></script>
+    <script src="/static/js/library.js?v=19"></script>
+    <script src="/static/js/voice-manager.js?v=12"></script>
+    <script src="/static/js/settings.js?v=7"></script>
 </body>
 </html>

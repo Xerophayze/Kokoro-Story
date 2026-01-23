@@ -3,6 +3,7 @@ from .base import TtsEngineBase, EngineCapabilities
 from .kokoro_engine import KokoroEngine
 from .chatterbox_engine import ChatterboxEngine
 from .chatterbox_turbo_local_engine import ChatterboxTurboLocalEngine
+from .voxcpm_local_engine import VoxCPMLocalEngine
 
 __all__ = [
     "TtsEngineBase",
@@ -10,4 +11,5 @@ __all__ = [
     "KokoroEngine",
     "ChatterboxEngine",
     "ChatterboxTurboLocalEngine",
+    "VoxCPMLocalEngine",
 ]

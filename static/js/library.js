@@ -12,8 +12,59 @@ const LIBRARY_CHUNK_MAX_ATTEMPTS = 60;
 let libraryActiveAudio = null;
 let libraryActivePlayButton = null;
 
+// Preview audio state
+let previewAudio = null;
+let previewButton = null;
+
 // Voice map for looking up lang_code by voice id
 let libraryVoiceMap = new Map();
+
+// Locale code to human-readable language name mapping
+const LIBRARY_LOCALE_NAMES = {
+    'af-ZA': 'Afrikaans', 'am-ET': 'Amharic', 'ar-AE': 'Arabic (UAE)', 'ar-BH': 'Arabic (Bahrain)',
+    'ar-DZ': 'Arabic (Algeria)', 'ar-EG': 'Arabic (Egypt)', 'ar-IQ': 'Arabic (Iraq)', 'ar-JO': 'Arabic (Jordan)',
+    'ar-KW': 'Arabic (Kuwait)', 'ar-LB': 'Arabic (Lebanon)', 'ar-LY': 'Arabic (Libya)', 'ar-MA': 'Arabic (Morocco)',
+    'ar-OM': 'Arabic (Oman)', 'ar-QA': 'Arabic (Qatar)', 'ar-SA': 'Arabic (Saudi)', 'ar-SY': 'Arabic (Syria)',
+    'ar-TN': 'Arabic (Tunisia)', 'ar-YE': 'Arabic (Yemen)', 'az-AZ': 'Azerbaijani', 'bg-BG': 'Bulgarian',
+    'bn-BD': 'Bengali (Bangladesh)', 'bn-IN': 'Bengali (India)', 'bs-BA': 'Bosnian', 'ca-ES': 'Catalan',
+    'cs-CZ': 'Czech', 'cy-GB': 'Welsh', 'da-DK': 'Danish', 'de-AT': 'German (Austria)', 'de-CH': 'German (Swiss)',
+    'de-DE': 'German', 'el-GR': 'Greek', 'en-AU': 'English (AU)', 'en-CA': 'English (CA)', 'en-GB': 'English (UK)',
+    'en-HK': 'English (HK)', 'en-IE': 'English (IE)', 'en-IN': 'English (IN)', 'en-KE': 'English (KE)',
+    'en-NG': 'English (NG)', 'en-NZ': 'English (NZ)', 'en-PH': 'English (PH)', 'en-SG': 'English (SG)',
+    'en-TZ': 'English (TZ)', 'en-US': 'English (US)', 'en-ZA': 'English (ZA)', 'es-AR': 'Spanish (AR)',
+    'es-BO': 'Spanish (BO)', 'es-CL': 'Spanish (CL)', 'es-CO': 'Spanish (CO)', 'es-CR': 'Spanish (CR)',
+    'es-CU': 'Spanish (CU)', 'es-DO': 'Spanish (DO)', 'es-EC': 'Spanish (EC)', 'es-ES': 'Spanish (ES)',
+    'es-GQ': 'Spanish (GQ)', 'es-GT': 'Spanish (GT)', 'es-HN': 'Spanish (HN)', 'es-MX': 'Spanish (MX)',
+    'es-NI': 'Spanish (NI)', 'es-PA': 'Spanish (PA)', 'es-PE': 'Spanish (PE)', 'es-PR': 'Spanish (PR)',
+    'es-PY': 'Spanish (PY)', 'es-SV': 'Spanish (SV)', 'es-US': 'Spanish (US)', 'es-UY': 'Spanish (UY)',
+    'es-VE': 'Spanish (VE)', 'et-EE': 'Estonian', 'eu-ES': 'Basque', 'fa-IR': 'Persian', 'fi-FI': 'Finnish',
+    'fil-PH': 'Filipino', 'fr-BE': 'French (BE)', 'fr-CA': 'French (CA)', 'fr-CH': 'French (CH)', 'fr-FR': 'French',
+    'ga-IE': 'Irish', 'gl-ES': 'Galician', 'gu-IN': 'Gujarati', 'he-IL': 'Hebrew', 'hi-IN': 'Hindi',
+    'hr-HR': 'Croatian', 'hu-HU': 'Hungarian', 'hy-AM': 'Armenian', 'id-ID': 'Indonesian', 'is-IS': 'Icelandic',
+    'it-IT': 'Italian', 'ja-JP': 'Japanese', 'jv-ID': 'Javanese', 'ka-GE': 'Georgian', 'kk-KZ': 'Kazakh',
+    'km-KH': 'Khmer', 'kn-IN': 'Kannada', 'ko-KR': 'Korean', 'lo-LA': 'Lao', 'lt-LT': 'Lithuanian',
+    'lv-LV': 'Latvian', 'mk-MK': 'Macedonian', 'ml-IN': 'Malayalam', 'mn-MN': 'Mongolian', 'mr-IN': 'Marathi',
+    'ms-MY': 'Malay', 'mt-MT': 'Maltese', 'my-MM': 'Burmese', 'nb-NO': 'Norwegian', 'ne-NP': 'Nepali',
+    'nl-BE': 'Dutch (BE)', 'nl-NL': 'Dutch', 'pl-PL': 'Polish', 'ps-AF': 'Pashto', 'pt-BR': 'Portuguese (BR)',
+    'pt-PT': 'Portuguese', 'ro-RO': 'Romanian', 'ru-RU': 'Russian', 'si-LK': 'Sinhala', 'sk-SK': 'Slovak',
+    'sl-SI': 'Slovenian', 'so-SO': 'Somali', 'sq-AL': 'Albanian', 'sr-RS': 'Serbian', 'su-ID': 'Sundanese',
+    'sv-SE': 'Swedish', 'sw-KE': 'Swahili (KE)', 'sw-TZ': 'Swahili (TZ)', 'ta-IN': 'Tamil (IN)',
+    'ta-LK': 'Tamil (LK)', 'ta-MY': 'Tamil (MY)', 'ta-SG': 'Tamil (SG)', 'te-IN': 'Telugu', 'th-TH': 'Thai',
+    'tr-TR': 'Turkish', 'uk-UA': 'Ukrainian', 'ur-IN': 'Urdu (IN)', 'ur-PK': 'Urdu (PK)', 'uz-UZ': 'Uzbek',
+    'vi-VN': 'Vietnamese', 'wuu-CN': 'Wu Chinese', 'yue-CN': 'Cantonese', 'zh-CN': 'Chinese (Mandarin)',
+    'zh-HK': 'Chinese (HK)', 'zh-TW': 'Chinese (TW)', 'zu-ZA': 'Zulu',
+};
+
+function getLibraryLanguageDisplayName(localeCode) {
+    if (!localeCode) return '';
+    return LIBRARY_LOCALE_NAMES[localeCode] || localeCode;
+}
+
+// Library voice dropdown filter state
+let libraryVoiceFilters = {
+    gender: 'all',
+    language: 'all'
+};
 
 // Load library on tab switch
 document.addEventListener('DOMContentLoaded', () => {
@@ -86,6 +137,7 @@ function formatEngineName(engine) {
         'kokoro_replicate': 'Kokoro (Replicate)',
         'chatterbox_turbo_local': 'Chatterbox',
         'chatterbox_turbo_replicate': 'Chatterbox (Replicate)',
+        'voxcpm_local': 'VoxCPM 1.5',
     };
     return engineMap[engine] || engine;
 }
@@ -354,6 +406,7 @@ function closeChunkReviewModal() {
 
     // Stop any playing audio
     stopLibraryChunkAudio();
+    stopPreviewAudio();
 
     // Clear watchers
     Object.keys(libraryChunkRegenWatchers).forEach(key => {
@@ -393,22 +446,57 @@ function renderChunkReviewModal(data) {
         speakerMap.get(speaker).count++;
     });
 
-    // Build speaker section HTML
+    // Build speaker section HTML - accordion layout
     const speakerRows = Array.from(speakerMap.entries()).map(([speaker, info]) => `
-        <div class="bulk-speaker-row" data-speaker="${escapeHtml(speaker)}">
-            <label class="bulk-speaker-label">
+        <div class="bulk-speaker-card" data-speaker="${escapeHtml(speaker)}">
+            <div class="bulk-speaker-summary" data-speaker="${escapeHtml(speaker)}">
                 <input type="checkbox" class="bulk-speaker-checkbox" data-speaker="${escapeHtml(speaker)}">
+                <span class="bulk-expand-toggle">▶</span>
                 <span class="bulk-speaker-name">${escapeHtml(speaker)}</span>
                 <span class="bulk-speaker-count">(${info.count} chunks)</span>
                 <span class="bulk-speaker-voice">${escapeHtml(info.voiceLabel)}</span>
-            </label>
-            <div class="bulk-speaker-actions">
-                <select class="bulk-speaker-voice-select" data-speaker="${escapeHtml(speaker)}">
-                    <option value="">-- Select voice --</option>
-                </select>
-                <button class="btn btn-xs btn-warning bulk-speaker-regen" data-speaker="${escapeHtml(speaker)}" disabled>
-                    Regenerate All
-                </button>
+            </div>
+            <div class="bulk-speaker-details collapsed" data-speaker="${escapeHtml(speaker)}">
+                <div class="bulk-speaker-controls">
+                    <div class="bulk-fx-section">
+                        <div class="bulk-fx-title">Audio Effects</div>
+                        <div class="bulk-fx-row">
+                            <div class="bulk-fx-control">
+                                <label>Speed</label>
+                                <input type="range" class="bulk-speed-slider" data-speaker="${escapeHtml(speaker)}" min="0.5" max="2.0" step="0.05" value="1.0">
+                                <span class="bulk-speed-value">1.0x</span>
+                            </div>
+                            <div class="bulk-fx-control">
+                                <label>Pitch</label>
+                                <input type="range" class="bulk-pitch-slider" data-speaker="${escapeHtml(speaker)}" min="-6" max="6" step="0.5" value="0">
+                                <span class="bulk-pitch-value">0</span>
+                            </div>
+                            <button class="btn btn-sm btn-primary bulk-speaker-apply-fx" data-speaker="${escapeHtml(speaker)}" disabled>
+                                Apply FX
+                            </button>
+                        </div>
+                    </div>
+                    <div class="bulk-regen-section">
+                        <div class="bulk-regen-title">Regenerate</div>
+                        <div class="bulk-regen-row">
+                            <div class="bulk-regen-field">
+                                <label>TTS Engine</label>
+                                <select class="bulk-speaker-engine-select" data-speaker="${escapeHtml(speaker)}">
+                                    <option value="">-- Same engine --</option>
+                                </select>
+                            </div>
+                            <div class="bulk-regen-field">
+                                <label>Voice</label>
+                                <select class="bulk-speaker-voice-select" data-speaker="${escapeHtml(speaker)}">
+                                    <option value="">-- Select voice --</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-sm btn-warning bulk-speaker-regen" data-speaker="${escapeHtml(speaker)}" disabled>
+                                Regenerate All
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     `).join('');
@@ -463,13 +551,30 @@ function renderChunkReviewModal(data) {
     }
 
     const chapterInfo = hasChapters ? `<span><strong>Chapters:</strong> ${chapters.length}</span>` : '';
+    
+    // Check if engine uses voice prompts (for filter visibility)
+    const usesPrompts = engine.includes('chatterbox') || engine.includes('voxcpm');
+    const filterSection = usesPrompts ? `
+        <div class="library-voice-filter-section" style="margin: 10px 0; padding: 10px; background: rgba(15, 23, 42, 0.5); border-radius: 8px;">
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <span style="font-weight: 500;">Voice Filters:</span>
+                <select id="library-voice-filter-gender" class="voice-filter-select" style="padding: 6px 10px; min-width: 120px;">
+                    <option value="all">All Genders</option>
+                </select>
+                <select id="library-voice-filter-language" class="voice-filter-select" style="padding: 6px 10px; min-width: 150px;">
+                    <option value="all">All Languages</option>
+                </select>
+            </div>
+        </div>
+    ` : '';
 
     body.innerHTML = `
         <div class="chunk-review-header">
-            <span><strong>Engine:</strong> ${engine}</span>
+            <span><strong>Original Engine:</strong> ${formatEngineName(engine)}</span>
             ${chapterInfo}
             <span><strong>Chunks:</strong> ${chunks.length}</span>
         </div>
+        ${filterSection}
         <div class="bulk-speaker-section">
             <div class="bulk-speaker-header">
                 <strong>Bulk Speaker Regeneration</strong>
@@ -481,6 +586,9 @@ function renderChunkReviewModal(data) {
             ${chunkContent}
         </div>
     `;
+    
+    // Store original engine for reference
+    body.dataset.originalEngine = engine;
 
     // Wire chapter toggle events if chapters exist
     if (hasChapters) {
@@ -533,27 +641,64 @@ function renderLibraryChunkRow(jobId, chunk, engine, idx) {
 
     // Speaker tag display
     const speakerTag = speaker ? `<span class="library-chunk-speaker">${escapeHtml(speaker)}</span>` : '';
+    
+    // Truncate text for preview (first 80 chars)
+    const textPreview = text.length > 80 ? text.substring(0, 80) + '...' : text;
 
     return `
-        <div class="library-chunk-row" data-chunk-id="${chunkId}" data-idx="${idx}">
-            <div class="library-chunk-controls">
+        <div class="library-chunk-card" data-chunk-id="${chunkId}" data-idx="${idx}">
+            <div class="library-chunk-summary" data-chunk-id="${chunkId}">
                 <button class="btn btn-xs btn-secondary library-chunk-play" data-audio-url="${audioUrl}" ${audioUrl ? '' : 'disabled'}>
-                    ▶ Play
+                    ▶
                 </button>
+                <span class="chunk-expand-toggle">▶</span>
                 ${statusBadge}
                 ${speakerTag}
-                <span class="library-chunk-voice-label">${escapeHtml(voiceLabel)}</span>
+                <span class="library-chunk-preview">${escapeHtml(textPreview)}</span>
             </div>
-            <div class="library-chunk-text">
-                <textarea class="library-chunk-textarea" data-chunk-id="${chunkId}" rows="2">${escapeHtml(text)}</textarea>
-            </div>
-            <div class="library-chunk-actions">
-                <select class="library-chunk-voice-select" data-chunk-id="${chunkId}">
-                    <option value="">-- Keep current --</option>
-                </select>
-                <button class="btn btn-xs btn-warning library-chunk-regen" data-chunk-id="${chunkId}">
-                    Regenerate
-                </button>
+            <div class="library-chunk-details collapsed" data-chunk-id="${chunkId}">
+                <div class="chunk-detail-section">
+                    <div class="chunk-detail-label">Voice: <span class="library-chunk-voice-label">${escapeHtml(voiceLabel)}</span></div>
+                    <div class="chunk-text-section">
+                        <label>Text:</label>
+                        <textarea class="library-chunk-textarea" data-chunk-id="${chunkId}" rows="3">${escapeHtml(text)}</textarea>
+                    </div>
+                </div>
+                <div class="chunk-detail-section chunk-fx-section">
+                    <div class="chunk-fx-title">Audio Effects</div>
+                    <div class="chunk-fx-row">
+                        <div class="chunk-fx-control">
+                            <label>Speed</label>
+                            <input type="range" class="chunk-speed-slider" data-chunk-id="${chunkId}" min="0.5" max="2.0" step="0.05" value="1.0">
+                            <span class="chunk-speed-value">1.0x</span>
+                        </div>
+                        <div class="chunk-fx-control">
+                            <label>Pitch</label>
+                            <input type="range" class="chunk-pitch-slider" data-chunk-id="${chunkId}" min="-6" max="6" step="0.5" value="0">
+                            <span class="chunk-pitch-value">0</span>
+                        </div>
+                        <button class="btn btn-sm btn-secondary library-chunk-preview-fx" data-chunk-id="${chunkId}" disabled>
+                            ▶ Preview
+                        </button>
+                        <button class="btn btn-sm btn-primary library-chunk-apply-fx" data-chunk-id="${chunkId}" disabled>
+                            Apply FX
+                        </button>
+                    </div>
+                </div>
+                <div class="chunk-detail-section chunk-regen-section">
+                    <div class="chunk-regen-title">Regenerate</div>
+                    <div class="chunk-regen-row">
+                        <select class="library-chunk-engine-select" data-chunk-id="${chunkId}">
+                            <option value="">-- Same engine --</option>
+                        </select>
+                        <select class="library-chunk-voice-select" data-chunk-id="${chunkId}">
+                            <option value="">-- Keep current --</option>
+                        </select>
+                        <button class="btn btn-sm btn-warning library-chunk-regen" data-chunk-id="${chunkId}">
+                            Regenerate
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     `;
@@ -578,6 +723,7 @@ function handleLibraryChunkPlayClick(btn) {
     if (libraryActiveAudio) {
         stopLibraryChunkAudio();
     }
+    stopPreviewAudio();
 
     // Start playing
     const audio = new Audio(url);
@@ -623,7 +769,7 @@ function stopLibraryChunkAudio() {
 
 function resetLibraryPlayButton(btn) {
     if (btn) {
-        btn.textContent = '▶ Play';
+        btn.textContent = '▶';
         btn.classList.remove('playing');
     }
 }
@@ -632,12 +778,39 @@ function wireChunkReviewEvents(jobId, chunks, engine) {
     const body = document.getElementById('chunk-review-modal-body');
     if (!body) return;
 
-    // Play/Stop buttons
-    body.querySelectorAll('.library-chunk-play').forEach(btn => {
-        btn.addEventListener('click', () => handleLibraryChunkPlayClick(btn));
+    // Chunk card expand/collapse toggle
+    body.querySelectorAll('.library-chunk-summary').forEach(summary => {
+        summary.addEventListener('click', (e) => {
+            // Don't toggle if clicking the play button
+            if (e.target.closest('.library-chunk-play')) return;
+            
+            const chunkId = summary.getAttribute('data-chunk-id');
+            const details = body.querySelector(`.library-chunk-details[data-chunk-id="${chunkId}"]`);
+            const toggle = summary.querySelector('.chunk-expand-toggle');
+            
+            if (details) {
+                const isCollapsed = details.classList.contains('collapsed');
+                if (isCollapsed) {
+                    details.classList.remove('collapsed');
+                    if (toggle) toggle.textContent = '▼';
+                } else {
+                    details.classList.add('collapsed');
+                    if (toggle) toggle.textContent = '▶';
+                }
+            }
+        });
     });
 
-    // Populate voice selects (both individual and bulk)
+    // Play/Stop buttons
+    body.querySelectorAll('.library-chunk-play').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent triggering expand/collapse
+            handleLibraryChunkPlayClick(btn);
+        });
+    });
+
+    // Initialize voice filters and populate voice selects
+    initLibraryVoiceFilters(engine);
     populateLibraryVoiceSelects(engine);
 
     // Regenerate buttons for individual chunks
@@ -648,15 +821,41 @@ function wireChunkReviewEvents(jobId, chunks, engine) {
         });
     });
 
+    // Bulk speaker accordion toggle
+    body.querySelectorAll('.bulk-speaker-summary').forEach(summary => {
+        summary.addEventListener('click', (e) => {
+            // Don't toggle if clicking the checkbox
+            if (e.target.closest('.bulk-speaker-checkbox')) return;
+            
+            const speaker = summary.getAttribute('data-speaker');
+            const details = body.querySelector(`.bulk-speaker-details[data-speaker="${speaker}"]`);
+            const toggle = summary.querySelector('.bulk-expand-toggle');
+            
+            if (details) {
+                const isCollapsed = details.classList.contains('collapsed');
+                if (isCollapsed) {
+                    details.classList.remove('collapsed');
+                    if (toggle) toggle.textContent = '▼';
+                } else {
+                    details.classList.add('collapsed');
+                    if (toggle) toggle.textContent = '▶';
+                }
+            }
+        });
+    });
+
     // Bulk speaker checkbox and voice select handlers
     body.querySelectorAll('.bulk-speaker-checkbox').forEach(checkbox => {
-        checkbox.addEventListener('change', () => updateBulkRegenButtonState(checkbox));
+        checkbox.addEventListener('change', (e) => {
+            e.stopPropagation(); // Prevent triggering accordion
+            updateBulkRegenButtonState(checkbox);
+        });
     });
 
     body.querySelectorAll('.bulk-speaker-voice-select').forEach(select => {
         select.addEventListener('change', () => {
-            const row = select.closest('.bulk-speaker-row');
-            const checkbox = row?.querySelector('.bulk-speaker-checkbox');
+            const card = select.closest('.bulk-speaker-card');
+            const checkbox = card?.querySelector('.bulk-speaker-checkbox');
             if (checkbox) updateBulkRegenButtonState(checkbox);
         });
     });
@@ -665,8 +864,131 @@ function wireChunkReviewEvents(jobId, chunks, engine) {
     body.querySelectorAll('.bulk-speaker-regen').forEach(btn => {
         btn.addEventListener('click', () => {
             const speaker = btn.getAttribute('data-speaker');
-            triggerBulkSpeakerRegen(jobId, speaker, chunks, engine, btn);
+            // Use per-speaker engine dropdown or original engine
+            const card = btn.closest('.bulk-speaker-card');
+            const engineSelect = card?.querySelector('.bulk-speaker-engine-select');
+            const engineOverride = engineSelect?.value || engine;
+            triggerBulkSpeakerRegen(jobId, speaker, chunks, engineOverride, btn);
         });
+    });
+
+    // Individual chunk FX sliders
+    body.querySelectorAll('.chunk-speed-slider').forEach(slider => {
+        slider.addEventListener('input', () => {
+            const valueSpan = slider.parentElement.querySelector('.chunk-speed-value');
+            if (valueSpan) valueSpan.textContent = `${parseFloat(slider.value).toFixed(2)}x`;
+            updateChunkApplyFxButtonState(slider);
+        });
+    });
+
+    body.querySelectorAll('.chunk-pitch-slider').forEach(slider => {
+        slider.addEventListener('input', () => {
+            const valueSpan = slider.parentElement.querySelector('.chunk-pitch-value');
+            if (valueSpan) valueSpan.textContent = parseFloat(slider.value).toFixed(1);
+            updateChunkApplyFxButtonState(slider);
+        });
+    });
+
+    // Individual chunk Preview FX buttons
+    body.querySelectorAll('.library-chunk-preview-fx').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const chunkId = btn.getAttribute('data-chunk-id');
+            triggerChunkPreviewFx(jobId, chunkId, btn);
+        });
+    });
+
+    // Individual chunk Apply FX buttons
+    body.querySelectorAll('.library-chunk-apply-fx').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const chunkId = btn.getAttribute('data-chunk-id');
+            triggerChunkApplyFx(jobId, chunkId, btn);
+        });
+    });
+
+    // Bulk speaker FX sliders
+    body.querySelectorAll('.bulk-speed-slider').forEach(slider => {
+        slider.addEventListener('input', () => {
+            const valueSpan = slider.parentElement.querySelector('.bulk-speed-value');
+            if (valueSpan) valueSpan.textContent = `${parseFloat(slider.value).toFixed(2)}x`;
+            updateBulkApplyFxButtonState(slider);
+        });
+    });
+
+    body.querySelectorAll('.bulk-pitch-slider').forEach(slider => {
+        slider.addEventListener('input', () => {
+            const valueSpan = slider.parentElement.querySelector('.bulk-pitch-value');
+            if (valueSpan) valueSpan.textContent = parseFloat(slider.value).toFixed(1);
+            updateBulkApplyFxButtonState(slider);
+        });
+    });
+
+    // Bulk speaker Apply FX buttons
+    body.querySelectorAll('.bulk-speaker-apply-fx').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const speaker = btn.getAttribute('data-speaker');
+            triggerBulkSpeakerApplyFx(jobId, speaker, chunks, btn);
+        });
+    });
+}
+
+async function initLibraryVoiceFilters(engine) {
+    const usesPrompts = engine.includes('chatterbox') || engine.includes('voxcpm');
+    if (!usesPrompts) return;
+    
+    const genderFilter = document.getElementById('library-voice-filter-gender');
+    const languageFilter = document.getElementById('library-voice-filter-language');
+    
+    if (!genderFilter || !languageFilter) return;
+    
+    // Reset filter state
+    libraryVoiceFilters = { gender: 'all', language: 'all' };
+    
+    // Fetch voice prompts to populate filter options
+    try {
+        const response = await fetch('/api/voice-prompts');
+        const data = await response.json();
+        if (data.success && data.prompts) {
+            const genders = new Set();
+            const languages = new Set();
+            
+            data.prompts.forEach(p => {
+                if (p.gender) genders.add(p.gender);
+                if (p.language) languages.add(p.language);
+            });
+            
+            // Populate gender filter
+            genderFilter.innerHTML = '<option value="all">All Genders</option>';
+            [...genders].sort().forEach(g => {
+                const opt = document.createElement('option');
+                opt.value = g.toLowerCase();
+                opt.textContent = g;
+                genderFilter.appendChild(opt);
+            });
+            
+            // Populate language filter
+            languageFilter.innerHTML = '<option value="all">All Languages</option>';
+            [...languages].sort((a, b) => 
+                getLibraryLanguageDisplayName(a).localeCompare(getLibraryLanguageDisplayName(b))
+            ).forEach(lang => {
+                const opt = document.createElement('option');
+                opt.value = lang;
+                opt.textContent = getLibraryLanguageDisplayName(lang);
+                languageFilter.appendChild(opt);
+            });
+        }
+    } catch (err) {
+        console.error('Failed to load voice prompts for filters:', err);
+    }
+    
+    // Wire up filter change events
+    genderFilter.addEventListener('change', () => {
+        libraryVoiceFilters.gender = genderFilter.value;
+        populateLibraryVoiceSelects(engine);
+    });
+    
+    languageFilter.addEventListener('change', () => {
+        libraryVoiceFilters.language = languageFilter.value;
+        populateLibraryVoiceSelects(engine);
     });
 }
 
@@ -676,19 +998,34 @@ async function populateLibraryVoiceSelects(engine) {
 
     const normalizedEngine = (engine || '').toLowerCase().replace(/[_-]/g, '');
     const isChatterbox = normalizedEngine.includes('chatterbox');
+    const isVoxCPM = normalizedEngine.includes('voxcpm');
+    const usesVoicePrompts = isChatterbox || isVoxCPM;
 
     let voices = [];
     try {
-        if (isChatterbox) {
-            // Chatterbox uses voice prompts
+        if (usesVoicePrompts) {
+            // Chatterbox and VoxCPM use voice prompts
             const response = await fetch('/api/voice-prompts');
             const data = await response.json();
             if (data.success) {
                 voices = (data.prompts || []).map(p => ({
                     id: p.name,  // API returns 'name' as the filename
                     name: p.display || p.name.replace('.wav', ''),
+                    duration: p.duration_seconds,
+                    gender: p.gender,
+                    language: p.language,
                     isPrompt: true
                 }));
+                
+                // Apply filters
+                if (libraryVoiceFilters.gender && libraryVoiceFilters.gender !== 'all') {
+                    voices = voices.filter(v => 
+                        (v.gender || '').toLowerCase() === libraryVoiceFilters.gender.toLowerCase()
+                    );
+                }
+                if (libraryVoiceFilters.language && libraryVoiceFilters.language !== 'all') {
+                    voices = voices.filter(v => v.language === libraryVoiceFilters.language);
+                }
             }
         } else {
             // Kokoro and others use /api/voices - returns nested structure by language
@@ -728,13 +1065,239 @@ async function populateLibraryVoiceSelects(engine) {
     libraryVoiceMap = new Map();
     voices.forEach(v => libraryVoiceMap.set(v.id, v));
 
+    // Helper to populate a single chunk voice select based on engine
+    // Minimum duration requirements per engine (in seconds)
+    const ENGINE_MIN_DURATION = {
+        'chatterbox': 5.0,
+        'chatterboxturbolocal': 5.0,
+        'chatterboxturborepl': 5.0,
+        'voxcpmlocal': 0,  // VoxCPM accepts any duration
+    };
+    
+    function getMinDuration(engineName) {
+        const normalized = (engineName || '').toLowerCase().replace(/[_-]/g, '');
+        for (const [key, val] of Object.entries(ENGINE_MIN_DURATION)) {
+            if (normalized.includes(key)) return val;
+        }
+        return 0;
+    }
+
+    async function populateChunkVoiceSelect(select, chunkId, engineName, filters = null) {
+        const usesPrompts = engineName.includes('chatterbox') || engineName.includes('voxcpm');
+        const minDuration = getMinDuration(engineName);
+        const activeFilters = filters || libraryVoiceFilters;
+        let chunkVoices = [];
+        
+        try {
+            if (usesPrompts) {
+                const response = await fetch('/api/voice-prompts');
+                const data = await response.json();
+                if (data.success && data.prompts) {
+                    chunkVoices = data.prompts.map(p => ({
+                        id: p.path || p.name,
+                        name: p.display || p.name,
+                        duration: p.duration_seconds,
+                        gender: p.gender,
+                        language: p.language,
+                        isPrompt: true
+                    }));
+                }
+            } else {
+                const response = await fetch('/api/voices');
+                const data = await response.json();
+                if (data.success && data.voices) {
+                    Object.entries(data.voices).forEach(([langKey, langConfig]) => {
+                        const langLabel = langConfig.language || langKey;
+                        const langCode = langConfig.lang_code || 'a';
+                        (langConfig.voices || []).forEach(voiceName => {
+                            chunkVoices.push({
+                                id: voiceName,
+                                name: `${voiceName} (${langLabel})`,
+                                langCode: langCode,
+                                isPrompt: false
+                            });
+                        });
+                        (langConfig.custom_voices || []).forEach(cv => {
+                            chunkVoices.push({
+                                id: cv.code || cv.id,
+                                name: `${cv.name || cv.code} (${langLabel}, custom)`,
+                                langCode: langCode,
+                                isPrompt: false
+                            });
+                        });
+                    });
+                }
+            }
+        } catch (err) {
+            console.error('Failed to load voices for chunk:', err);
+        }
+        
+        // Apply filters for prompt-based voices
+        if (usesPrompts) {
+            if (activeFilters.gender && activeFilters.gender !== 'all') {
+                chunkVoices = chunkVoices.filter(v => 
+                    (v.gender || '').toLowerCase() === activeFilters.gender.toLowerCase()
+                );
+            }
+            if (activeFilters.language && activeFilters.language !== 'all') {
+                chunkVoices = chunkVoices.filter(v => v.language === activeFilters.language);
+            }
+        }
+        
+        select.innerHTML = '<option value="">-- Keep current --</option>';
+        chunkVoices.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v.id;
+            const durationLabel = v.duration != null ? ` · ${v.duration.toFixed(1)}s` : '';
+            
+            // Build label with gender and language for prompt voices
+            let displayName = v.name;
+            if (v.isPrompt && (v.gender || v.language)) {
+                const gender = v.gender ? ` [${v.gender.charAt(0).toUpperCase()}]` : '';
+                const lang = v.language ? ` ${getLibraryLanguageDisplayName(v.language)}` : '';
+                displayName = `${v.name} ·${gender}${lang}`;
+            }
+            
+            opt.textContent = `${displayName}${durationLabel}`;
+            opt.dataset.gender = v.gender || '';
+            opt.dataset.language = v.language || '';
+            
+            // Disable if duration is too short for this engine
+            if (minDuration > 0 && v.duration != null && v.duration < minDuration) {
+                opt.disabled = true;
+                opt.style.color = '#ff6b6b';
+                opt.textContent = `${displayName}${durationLabel} (too short)`;
+            }
+            
+            select.appendChild(opt);
+        });
+        
+        // Clear any previous voice override for this chunk
+        delete libraryChunkVoiceOverrides[chunkId];
+    }
+
+    // Helper to populate bulk speaker voice select based on engine
+    async function populateBulkVoiceSelect(select, speaker, engineName, filters = null) {
+        const usesPrompts = engineName.includes('chatterbox') || engineName.includes('voxcpm');
+        const minDuration = getMinDuration(engineName);
+        const activeFilters = filters || libraryVoiceFilters;
+        let bulkVoices = [];
+        
+        try {
+            if (usesPrompts) {
+                const response = await fetch('/api/voice-prompts');
+                const data = await response.json();
+                if (data.success && data.prompts) {
+                    bulkVoices = data.prompts.map(p => ({
+                        id: p.path || p.name,
+                        name: p.display || p.name,
+                        duration: p.duration_seconds,
+                        gender: p.gender,
+                        language: p.language,
+                        isPrompt: true
+                    }));
+                }
+            } else {
+                const response = await fetch('/api/voices');
+                const data = await response.json();
+                if (data.success && data.voices) {
+                    Object.entries(data.voices).forEach(([langKey, langConfig]) => {
+                        const langLabel = langConfig.language || langKey;
+                        const langCode = langConfig.lang_code || 'a';
+                        (langConfig.voices || []).forEach(voiceName => {
+                            bulkVoices.push({
+                                id: voiceName,
+                                name: `${voiceName} (${langLabel})`,
+                                langCode: langCode,
+                                isPrompt: false
+                            });
+                        });
+                        (langConfig.custom_voices || []).forEach(cv => {
+                            bulkVoices.push({
+                                id: cv.code || cv.id,
+                                name: `${cv.name || cv.code} (${langLabel}, custom)`,
+                                langCode: langCode,
+                                isPrompt: false
+                            });
+                        });
+                    });
+                }
+            }
+        } catch (err) {
+            console.error('Failed to load voices for bulk speaker:', err);
+        }
+        
+        // Apply filters for prompt-based voices
+        if (usesPrompts) {
+            if (activeFilters.gender && activeFilters.gender !== 'all') {
+                bulkVoices = bulkVoices.filter(v => 
+                    (v.gender || '').toLowerCase() === activeFilters.gender.toLowerCase()
+                );
+            }
+            if (activeFilters.language && activeFilters.language !== 'all') {
+                bulkVoices = bulkVoices.filter(v => v.language === activeFilters.language);
+            }
+        }
+        
+        select.innerHTML = '<option value="">-- Select voice --</option>';
+        bulkVoices.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v.id;
+            const durationLabel = v.duration != null ? ` · ${v.duration.toFixed(1)}s` : '';
+            
+            // Build label with gender and language for prompt voices
+            let displayName = v.name;
+            if (v.isPrompt && (v.gender || v.language)) {
+                const gender = v.gender ? ` [${v.gender.charAt(0).toUpperCase()}]` : '';
+                const lang = v.language ? ` ${getLibraryLanguageDisplayName(v.language)}` : '';
+                displayName = `${v.name} ·${gender}${lang}`;
+            }
+            
+            opt.textContent = `${displayName}${durationLabel}`;
+            opt.dataset.gender = v.gender || '';
+            opt.dataset.language = v.language || '';
+            
+            // Disable if duration is too short for this engine
+            if (minDuration > 0 && v.duration != null && v.duration < minDuration) {
+                opt.disabled = true;
+                opt.style.color = '#ff6b6b';
+                opt.textContent = `${displayName}${durationLabel} (too short)`;
+            }
+            
+            select.appendChild(opt);
+        });
+    }
+
+    // Get minimum duration for the current engine
+    const currentMinDuration = getMinDuration(engine);
+
     body.querySelectorAll('.library-chunk-voice-select').forEach(select => {
         const chunkId = select.getAttribute('data-chunk-id');
         select.innerHTML = '<option value="">-- Keep current --</option>';
         voices.forEach(v => {
             const opt = document.createElement('option');
             opt.value = v.id;
-            opt.textContent = v.name;
+            const durationLabel = v.duration != null ? ` · ${v.duration.toFixed(1)}s` : '';
+            
+            // Build label with gender and language for prompt voices
+            let displayName = v.name;
+            if (v.isPrompt && (v.gender || v.language)) {
+                const gender = v.gender ? ` [${v.gender.charAt(0).toUpperCase()}]` : '';
+                const lang = v.language ? ` ${getLibraryLanguageDisplayName(v.language)}` : '';
+                displayName = `${v.name} ·${gender}${lang}`;
+            }
+            
+            opt.textContent = `${displayName}${durationLabel}`;
+            opt.dataset.gender = v.gender || '';
+            opt.dataset.language = v.language || '';
+            
+            // Disable if duration is too short for this engine
+            if (currentMinDuration > 0 && v.duration != null && v.duration < currentMinDuration) {
+                opt.disabled = true;
+                opt.style.color = '#ff6b6b';
+                opt.textContent = `${displayName}${durationLabel} (too short)`;
+            }
+            
             select.appendChild(opt);
         });
 
@@ -742,8 +1305,8 @@ async function populateLibraryVoiceSelects(engine) {
             const value = select.value;
             if (value) {
                 const voiceData = libraryVoiceMap.get(value);
-                if (isChatterbox) {
-                    // For Chatterbox, store as audio_prompt_path (what the engine expects)
+                if (usesVoicePrompts) {
+                    // For Chatterbox/VoxCPM, store as audio_prompt_path (what the engine expects)
                     libraryChunkVoiceOverrides[chunkId] = { audio_prompt_path: value };
                 } else {
                     // For Kokoro, include both voice name and lang_code
@@ -758,27 +1321,81 @@ async function populateLibraryVoiceSelects(engine) {
         });
     });
 
+    // Populate chunk engine selects
+    body.querySelectorAll('.library-chunk-engine-select').forEach(select => {
+        const chunkId = select.getAttribute('data-chunk-id');
+        select.innerHTML = `
+            <option value="">-- Same engine --</option>
+            <option value="kokoro">Kokoro</option>
+            <option value="chatterbox_turbo_local">Chatterbox</option>
+            <option value="chatterbox_turbo_api">Chatterbox API</option>
+            <option value="voxcpm_local">VoxCPM 1.5</option>
+        `;
+        
+        // When engine changes, repopulate the voice dropdown for this chunk
+        select.addEventListener('change', () => {
+            const selectedEngine = select.value || engine;
+            const voiceSelect = select.closest('.chunk-regen-row')?.querySelector('.library-chunk-voice-select');
+            if (voiceSelect) {
+                populateChunkVoiceSelect(voiceSelect, chunkId, selectedEngine);
+            }
+        });
+    });
+
+    // Populate bulk speaker engine selects
+    body.querySelectorAll('.bulk-speaker-engine-select').forEach(select => {
+        const speaker = select.getAttribute('data-speaker');
+        select.innerHTML = `
+            <option value="">-- Same engine --</option>
+            <option value="kokoro">Kokoro</option>
+            <option value="chatterbox_turbo_local">Chatterbox</option>
+            <option value="chatterbox_turbo_api">Chatterbox API</option>
+            <option value="voxcpm_local">VoxCPM 1.5</option>
+        `;
+        
+        // When engine changes, repopulate the voice dropdown for this speaker
+        select.addEventListener('change', async () => {
+            const selectedEngine = select.value || engine;
+            const voiceSelect = select.closest('.bulk-regen-row')?.querySelector('.bulk-speaker-voice-select');
+            if (voiceSelect) {
+                await populateBulkVoiceSelect(voiceSelect, speaker, selectedEngine);
+            }
+        });
+    });
+
     // Also populate bulk speaker voice selects
     body.querySelectorAll('.bulk-speaker-voice-select').forEach(select => {
         select.innerHTML = '<option value="">-- Select voice --</option>';
         voices.forEach(v => {
             const opt = document.createElement('option');
             opt.value = v.id;
-            opt.textContent = v.name;
+            const durationLabel = v.duration != null ? ` · ${v.duration.toFixed(1)}s` : '';
+            
+            // Build label with gender and language for prompt voices
+            let displayName = v.name;
+            if (v.isPrompt && (v.gender || v.language)) {
+                const gender = v.gender ? ` [${v.gender.charAt(0).toUpperCase()}]` : '';
+                const lang = v.language ? ` ${getLibraryLanguageDisplayName(v.language)}` : '';
+                displayName = `${v.name} ·${gender}${lang}`;
+            }
+            
+            opt.textContent = `${displayName}${durationLabel}`;
+            opt.dataset.gender = v.gender || '';
+            opt.dataset.language = v.language || '';
             select.appendChild(opt);
         });
     });
 
-    // Store engine info for bulk regen
-    body.dataset.isChatterbox = isChatterbox ? 'true' : 'false';
+    // Store engine info for bulk regen (usesVoicePrompts covers both Chatterbox and VoxCPM)
+    body.dataset.usesVoicePrompts = usesVoicePrompts ? 'true' : 'false';
 }
 
 function updateBulkRegenButtonState(checkbox) {
-    const row = checkbox.closest('.bulk-speaker-row');
-    if (!row) return;
+    const card = checkbox.closest('.bulk-speaker-card');
+    if (!card) return;
 
-    const select = row.querySelector('.bulk-speaker-voice-select');
-    const btn = row.querySelector('.bulk-speaker-regen');
+    const select = card.querySelector('.bulk-speaker-voice-select');
+    const btn = card.querySelector('.bulk-speaker-regen');
     if (!select || !btn) return;
 
     // Enable button only if checkbox is checked AND a voice is selected
@@ -789,8 +1406,8 @@ function updateBulkRegenButtonState(checkbox) {
 
 async function triggerBulkSpeakerRegen(jobId, speaker, chunks, engine, button) {
     const body = document.getElementById('chunk-review-modal-body');
-    const row = button.closest('.bulk-speaker-row');
-    const select = row?.querySelector('.bulk-speaker-voice-select');
+    const card = button.closest('.bulk-speaker-card');
+    const select = card?.querySelector('.bulk-speaker-voice-select');
     const voiceValue = select?.value;
 
     if (!voiceValue) {
@@ -807,10 +1424,12 @@ async function triggerBulkSpeakerRegen(jobId, speaker, chunks, engine, button) {
 
     const normalizedEngine = (engine || '').toLowerCase().replace(/[_-]/g, '');
     const isChatterbox = normalizedEngine.includes('chatterbox');
+    const isVoxCPM = normalizedEngine.includes('voxcpm');
+    const usesVoicePrompts = isChatterbox || isVoxCPM;
 
-    // Build voice payload with lang_code for Kokoro
+    // Build voice payload with lang_code for Kokoro, audio_prompt_path for Chatterbox/VoxCPM
     const voiceData = libraryVoiceMap.get(voiceValue);
-    const voicePayload = isChatterbox 
+    const voicePayload = usesVoicePrompts 
         ? { audio_prompt_path: voiceValue }
         : { voice: voiceValue, lang_code: voiceData?.langCode || 'a' };
 
@@ -824,23 +1443,29 @@ async function triggerBulkSpeakerRegen(jobId, speaker, chunks, engine, button) {
         // Regenerate each chunk for this speaker
         for (const chunk of speakerChunks) {
             const chunkId = chunk.id;
-            const chunkRow = document.querySelector(`.library-chunk-row[data-chunk-id="${chunkId}"]`);
-            const textarea = chunkRow?.querySelector('.library-chunk-textarea');
+            const chunkCard = document.querySelector(`.library-chunk-card[data-chunk-id="${chunkId}"]`);
+            const textarea = chunkCard?.querySelector('.library-chunk-textarea');
             const text = textarea ? textarea.value.trim() : chunk.text;
 
             if (!text) continue;
 
             // Update the individual chunk's voice override
             libraryChunkVoiceOverrides[chunkId] = { ...voicePayload };
+            
+            const requestBody = {
+                chunk_id: chunkId,
+                text: text,
+                voice: voicePayload,
+            };
+            // Use the engine passed in from the per-speaker dropdown
+            if (engine) {
+                requestBody.engine = engine;
+            }
 
             const response = await fetch(`/api/jobs/${jobId}/review/regen`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    chunk_id: chunkId,
-                    text: text,
-                    voice: voicePayload,
-                }),
+                body: JSON.stringify(requestBody),
             });
 
             const data = await response.json();
@@ -865,8 +1490,8 @@ async function triggerBulkSpeakerRegen(jobId, speaker, chunks, engine, button) {
 }
 
 async function triggerLibraryChunkRegen(jobId, chunkId, button) {
-    const row = button.closest('.library-chunk-row');
-    const textarea = row ? row.querySelector('.library-chunk-textarea') : null;
+    const card = button.closest('.library-chunk-card');
+    const textarea = card ? card.querySelector('.library-chunk-textarea') : null;
     const text = textarea ? textarea.value.trim() : '';
 
     if (!text) {
@@ -878,19 +1503,28 @@ async function triggerLibraryChunkRegen(jobId, chunkId, button) {
     button.textContent = 'Queuing...';
 
     const voicePayload = libraryChunkVoiceOverrides[chunkId] || {};
+    
+    // Get engine override from per-chunk dropdown
+    const chunkEngineSelect = card?.querySelector('.library-chunk-engine-select');
+    const engineOverride = chunkEngineSelect?.value || '';
 
     try {
         // First restore the job to review mode if not already
         await fetch(`/api/library/${jobId}/restore-review`, { method: 'POST' });
 
+        const requestBody = {
+            chunk_id: chunkId,
+            text: text,
+            voice: voicePayload,
+        };
+        if (engineOverride) {
+            requestBody.engine = engineOverride;
+        }
+
         const response = await fetch(`/api/jobs/${jobId}/review/regen`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chunk_id: chunkId,
-                text: text,
-                voice: voicePayload,
-            }),
+            body: JSON.stringify(requestBody),
         });
 
         const data = await response.json();
@@ -912,14 +1546,14 @@ async function triggerLibraryChunkRegen(jobId, chunkId, button) {
 }
 
 function updateLibraryChunkStatus(chunkId, status) {
-    const row = document.querySelector(`.library-chunk-row[data-chunk-id="${chunkId}"]`);
-    if (!row) return;
+    const card = document.querySelector(`.library-chunk-card[data-chunk-id="${chunkId}"]`);
+    if (!card) return;
 
-    const controls = row.querySelector('.library-chunk-controls');
-    if (!controls) return;
+    const summary = card.querySelector('.library-chunk-summary');
+    if (!summary) return;
 
     // Remove existing status badges
-    controls.querySelectorAll('.review-chip').forEach(el => el.remove());
+    summary.querySelectorAll('.review-chip').forEach(el => el.remove());
 
     let badge = '';
     if (status === 'queued') {
@@ -933,9 +1567,9 @@ function updateLibraryChunkStatus(chunkId, status) {
     }
 
     if (badge) {
-        const playBtn = controls.querySelector('.library-chunk-play');
-        if (playBtn) {
-            playBtn.insertAdjacentHTML('afterend', badge);
+        const toggle = summary.querySelector('.chunk-expand-toggle');
+        if (toggle) {
+            toggle.insertAdjacentHTML('afterend', badge);
         }
     }
 }
@@ -971,9 +1605,9 @@ async function pollLibraryChunkStatus(jobId, chunkId, entry) {
             if (!status || status === 'completed' || status === 'failed') {
                 const chunk = chunks.find(c => c.id === chunkId);
                 if (chunk && chunk.file_url) {
-                    const row = document.querySelector(`.library-chunk-row[data-chunk-id="${chunkId}"]`);
-                    if (row) {
-                        const playBtn = row.querySelector('.library-chunk-play');
+                    const card = document.querySelector(`.library-chunk-card[data-chunk-id="${chunkId}"]`);
+                    if (card) {
+                        const playBtn = card.querySelector('.library-chunk-play');
                         const cacheToken = chunk.regenerated_at || Date.now().toString();
                         const newUrl = `${chunk.file_url}?t=${encodeURIComponent(cacheToken)}`;
                         if (playBtn) {
@@ -981,7 +1615,7 @@ async function pollLibraryChunkStatus(jobId, chunkId, entry) {
                             playBtn.disabled = false;
                         }
                         // Update voice label (API returns 'voice', not 'voice_label')
-                        const voiceLabelEl = row.querySelector('.library-chunk-voice-label');
+                        const voiceLabelEl = card.querySelector('.library-chunk-voice-label');
                         const newVoiceLabel = chunk.voice || chunk.voice_label;
                         if (voiceLabelEl && newVoiceLabel) {
                             voiceLabelEl.textContent = newVoiceLabel;
@@ -1039,6 +1673,276 @@ async function recompileLibraryAudio() {
             recompileBtn.disabled = false;
             recompileBtn.textContent = 'Recompile Audio';
         }
+    }
+}
+
+// FX button state helpers
+function updateChunkApplyFxButtonState(slider) {
+    const card = slider.closest('.library-chunk-card');
+    if (!card) return;
+    
+    const speedSlider = card.querySelector('.chunk-speed-slider');
+    const pitchSlider = card.querySelector('.chunk-pitch-slider');
+    const applyBtn = card.querySelector('.library-chunk-apply-fx');
+    const previewBtn = card.querySelector('.library-chunk-preview-fx');
+    
+    const speed = parseFloat(speedSlider?.value || 1.0);
+    const pitch = parseFloat(pitchSlider?.value || 0);
+    
+    // Enable if either value is changed from default
+    const hasChanges = Math.abs(speed - 1.0) > 0.01 || Math.abs(pitch) > 0.1;
+    if (applyBtn) applyBtn.disabled = !hasChanges;
+    if (previewBtn) previewBtn.disabled = !hasChanges;
+}
+
+function updateBulkApplyFxButtonState(slider) {
+    const card = slider.closest('.bulk-speaker-card');
+    if (!card) return;
+    
+    const speedSlider = card.querySelector('.bulk-speed-slider');
+    const pitchSlider = card.querySelector('.bulk-pitch-slider');
+    const applyBtn = card.querySelector('.bulk-speaker-apply-fx');
+    
+    if (!applyBtn) return;
+    
+    const speed = parseFloat(speedSlider?.value || 1.0);
+    const pitch = parseFloat(pitchSlider?.value || 0);
+    
+    // Enable if either value is changed from default
+    const hasChanges = Math.abs(speed - 1.0) > 0.01 || Math.abs(pitch) > 0.1;
+    applyBtn.disabled = !hasChanges;
+}
+
+async function triggerChunkPreviewFx(jobId, chunkId, button) {
+    const card = button.closest('.library-chunk-card');
+    if (!card) return;
+    
+    // If already previewing, stop it
+    if (previewAudio && previewButton === button) {
+        stopPreviewAudio();
+        return;
+    }
+    
+    // Stop any existing preview or regular playback
+    stopPreviewAudio();
+    stopLibraryChunkAudio();
+    
+    const speedSlider = card.querySelector('.chunk-speed-slider');
+    const pitchSlider = card.querySelector('.chunk-pitch-slider');
+    
+    const speed = parseFloat(speedSlider?.value || 1.0);
+    const pitch = parseFloat(pitchSlider?.value || 0);
+    
+    const originalText = button.textContent;
+    button.textContent = '⏳ Loading...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch(`/api/jobs/${jobId}/review/preview-fx`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chunk_id: chunkId, speed, pitch }),
+        });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to preview effects');
+        }
+        
+        // Get the audio blob and play it
+        const blob = await response.blob();
+        const audioUrl = URL.createObjectURL(blob);
+        
+        previewAudio = new Audio(audioUrl);
+        previewButton = button;
+        
+        button.textContent = '■ Stop';
+        button.disabled = false;
+        button.classList.add('previewing');
+        
+        previewAudio.addEventListener('ended', () => {
+            stopPreviewAudio();
+            button.textContent = originalText;
+            button.disabled = false;
+            // Re-check if button should be enabled based on slider values
+            updateChunkApplyFxButtonState(speedSlider);
+        });
+        
+        previewAudio.addEventListener('error', (err) => {
+            console.error('Preview playback error:', err);
+            stopPreviewAudio();
+            button.textContent = originalText;
+            button.disabled = false;
+            updateChunkApplyFxButtonState(speedSlider);
+        });
+        
+        await previewAudio.play();
+        
+    } catch (error) {
+        console.error('Preview FX error:', error);
+        alert(error.message || 'Failed to preview effects');
+        button.textContent = originalText;
+        button.disabled = false;
+        updateChunkApplyFxButtonState(speedSlider);
+    }
+}
+
+function stopPreviewAudio() {
+    if (previewAudio) {
+        previewAudio.pause();
+        previewAudio.currentTime = 0;
+        if (previewAudio.src && previewAudio.src.startsWith('blob:')) {
+            URL.revokeObjectURL(previewAudio.src);
+        }
+        previewAudio = null;
+    }
+    if (previewButton) {
+        previewButton.classList.remove('previewing');
+        previewButton = null;
+    }
+}
+
+async function triggerChunkApplyFx(jobId, chunkId, button) {
+    const card = button.closest('.library-chunk-card');
+    if (!card) return;
+    
+    const speedSlider = card.querySelector('.chunk-speed-slider');
+    const pitchSlider = card.querySelector('.chunk-pitch-slider');
+    
+    const speed = parseFloat(speedSlider?.value || 1.0);
+    const pitch = parseFloat(pitchSlider?.value || 0);
+    
+    button.disabled = true;
+    button.textContent = 'Applying...';
+    
+    try {
+        // First restore the job to review mode if not already
+        await fetch(`/api/library/${jobId}/restore-review`, { method: 'POST' });
+
+        const response = await fetch(`/api/jobs/${jobId}/review/apply-fx`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chunks: [{ chunk_id: chunkId, speed, pitch }]
+            }),
+        });
+        
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to apply effects');
+        }
+        
+        // Show success feedback
+        button.textContent = 'Applied!';
+        updateLibraryChunkStatus(chunkId, 'completed');
+        
+        // Reset sliders to default
+        if (speedSlider) speedSlider.value = 1.0;
+        if (pitchSlider) pitchSlider.value = 0;
+        card.querySelector('.chunk-speed-value').textContent = '1.0x';
+        card.querySelector('.chunk-pitch-value').textContent = '0';
+        
+        // Update audio player URL to bust cache
+        const playBtn = card.querySelector('.library-chunk-play');
+        if (playBtn) {
+            const currentUrl = playBtn.getAttribute('data-audio-url');
+            if (currentUrl) {
+                const baseUrl = currentUrl.split('?')[0];
+                playBtn.setAttribute('data-audio-url', `${baseUrl}?t=${Date.now()}`);
+            }
+        }
+        
+        setTimeout(() => {
+            button.textContent = 'Apply';
+            button.disabled = true;
+        }, 1500);
+        
+    } catch (error) {
+        console.error('Apply FX error:', error);
+        alert(error.message || 'Failed to apply effects');
+        button.textContent = 'Apply';
+        button.disabled = false;
+    }
+}
+
+async function triggerBulkSpeakerApplyFx(jobId, speaker, chunks, button) {
+    const card = button.closest('.bulk-speaker-card');
+    if (!card) return;
+    
+    const speedSlider = card.querySelector('.bulk-speed-slider');
+    const pitchSlider = card.querySelector('.bulk-pitch-slider');
+    
+    const speed = parseFloat(speedSlider?.value || 1.0);
+    const pitch = parseFloat(pitchSlider?.value || 0);
+    
+    // Get all chunks for this speaker
+    const speakerChunks = chunks.filter(c => (c.speaker || 'default') === speaker);
+    if (speakerChunks.length === 0) {
+        alert('No chunks found for this speaker.');
+        return;
+    }
+    
+    button.disabled = true;
+    button.textContent = `Applying to ${speakerChunks.length}...`;
+    
+    try {
+        // First restore the job to review mode if not already
+        await fetch(`/api/library/${jobId}/restore-review`, { method: 'POST' });
+
+        const chunksFx = speakerChunks.map(c => ({
+            chunk_id: c.id,
+            speed,
+            pitch
+        }));
+        
+        const response = await fetch(`/api/jobs/${jobId}/review/apply-fx`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chunks: chunksFx }),
+        });
+        
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to apply effects');
+        }
+        
+        // Show success feedback
+        button.textContent = `Applied to ${data.processed}!`;
+        
+        // Update status for each chunk
+        speakerChunks.forEach(c => {
+            updateLibraryChunkStatus(c.id, 'completed');
+            
+            // Update audio player URL to bust cache
+            const chunkCard = document.querySelector(`.library-chunk-card[data-chunk-id="${c.id}"]`);
+            if (chunkCard) {
+                const playBtn = chunkCard.querySelector('.library-chunk-play');
+                if (playBtn) {
+                    const currentUrl = playBtn.getAttribute('data-audio-url');
+                    if (currentUrl) {
+                        const baseUrl = currentUrl.split('?')[0];
+                        playBtn.setAttribute('data-audio-url', `${baseUrl}?t=${Date.now()}`);
+                    }
+                }
+            }
+        });
+        
+        // Reset sliders to default
+        if (speedSlider) speedSlider.value = 1.0;
+        if (pitchSlider) pitchSlider.value = 0;
+        card.querySelector('.bulk-speed-value').textContent = '1.0x';
+        card.querySelector('.bulk-pitch-value').textContent = '0';
+        
+        setTimeout(() => {
+            button.textContent = 'Apply FX';
+            button.disabled = true;
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Bulk apply FX error:', error);
+        alert(error.message || 'Failed to apply effects');
+        button.textContent = 'Apply FX';
+        button.disabled = false;
     }
 }
 

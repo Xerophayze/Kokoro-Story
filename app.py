@@ -50,6 +50,7 @@ from src.engines import TtsEngineBase
 from src.engines.chatterbox_turbo_local_engine import (
     CHATTERBOX_TURBO_AVAILABLE,
 )
+from src.engines.voxcpm_local_engine import VOXCPM_AVAILABLE
 from src.engines.chatterbox_turbo_replicate_engine import (
     DEFAULT_CHATTERBOX_TURBO_REPLICATE_MODEL,
     DEFAULT_CHATTERBOX_TURBO_REPLICATE_VOICE,
@@ -120,6 +121,14 @@ DEFAULT_CONFIG = {
     "chatterbox_turbo_replicate_top_k": 1000,
     "chatterbox_turbo_replicate_repetition_penalty": 1.2,
     "chatterbox_turbo_replicate_seed": None,
+    "voxcpm_local_model_id": "openbmb/VoxCPM1.5",
+    "voxcpm_local_device": "auto",
+    "voxcpm_local_default_prompt": "",
+    "voxcpm_local_default_prompt_text": "",
+    "voxcpm_local_cfg_value": 2.0,
+    "voxcpm_local_inference_timesteps": 32,
+    "voxcpm_local_normalize": True,  # Enable text normalization for numbers/abbreviations
+    "voxcpm_local_denoise": False,
     "parallel_chunks": 3,
     "cleanup_vram_after_job": False,
 }
@@ -136,6 +145,16 @@ CHATTERBOX_TURBO_LOCAL_SETTING_KEYS = {
     "chatterbox_turbo_local_prompt_norm_loudness",
     "chatterbox_turbo_local_device",
 }
+VOXCPM_LOCAL_SETTING_KEYS = {
+    "voxcpm_local_model_id",
+    "voxcpm_local_device",
+    "voxcpm_local_default_prompt",
+    "voxcpm_local_default_prompt_text",
+    "voxcpm_local_cfg_value",
+    "voxcpm_local_inference_timesteps",
+    "voxcpm_local_normalize",
+    "voxcpm_local_denoise",
+}
 CHATTERBOX_TURBO_LOCAL_OPTION_ALIASES = {
     "default_prompt": "chatterbox_turbo_local_default_prompt",
     "prompt": "chatterbox_turbo_local_default_prompt",
@@ -148,6 +167,17 @@ CHATTERBOX_TURBO_LOCAL_OPTION_ALIASES = {
     "norm_loudness": "chatterbox_turbo_local_norm_loudness",
     "prompt_norm_loudness": "chatterbox_turbo_local_prompt_norm_loudness",
     "device": "chatterbox_turbo_local_device",
+}
+VOXCPM_LOCAL_OPTION_ALIASES = {
+    "model": "voxcpm_local_model_id",
+    "model_id": "voxcpm_local_model_id",
+    "device": "voxcpm_local_device",
+    "default_prompt": "voxcpm_local_default_prompt",
+    "prompt_text": "voxcpm_local_default_prompt_text",
+    "cfg_value": "voxcpm_local_cfg_value",
+    "inference_timesteps": "voxcpm_local_inference_timesteps",
+    "normalize": "voxcpm_local_normalize",
+    "denoise": "voxcpm_local_denoise",
 }
 CHATTERBOX_TURBO_LOCAL_BOOLEAN_SETTINGS = {
     "chatterbox_turbo_local_norm_loudness",
@@ -163,6 +193,16 @@ CHATTERBOX_TURBO_LOCAL_FLOAT_SETTINGS = {
 CHATTERBOX_TURBO_LOCAL_INT_SETTINGS = {
     "chatterbox_turbo_local_top_k": (1, 4000, 1000),
     "chatterbox_turbo_local_chunk_size": (100, 1000, 450),
+}
+VOXCPM_LOCAL_BOOLEAN_SETTINGS = {
+    "voxcpm_local_normalize",
+    "voxcpm_local_denoise",
+}
+VOXCPM_LOCAL_FLOAT_SETTINGS = {
+    "voxcpm_local_cfg_value": (0.1, 5.0, 2.0),
+}
+VOXCPM_LOCAL_INT_SETTINGS = {
+    "voxcpm_local_inference_timesteps": (10, 100, 32),
 }
 
 CHATTERBOX_TURBO_REPLICATE_SETTING_KEYS = {
@@ -268,6 +308,8 @@ def _normalize_engine_options(engine_name: str, options: Optional[Dict[str, Any]
         return _normalize_chatterbox_turbo_local_options(options)
     if engine_name == "chatterbox_turbo_replicate":
         return _normalize_chatterbox_turbo_replicate_options(options)
+    if engine_name == "voxcpm_local":
+        return _normalize_voxcpm_local_options(options)
     return {}
 
 
@@ -294,6 +336,35 @@ def _normalize_chatterbox_turbo_local_options(options: Dict[str, Any]) -> Dict[s
             continue
         if key in CHATTERBOX_TURBO_LOCAL_INT_SETTINGS:
             minimum, maximum, fallback = CHATTERBOX_TURBO_LOCAL_INT_SETTINGS[key]
+            result[key] = _coerce_int(value, minimum=minimum, maximum=maximum, fallback=fallback)
+            continue
+        result[key] = (value or "").strip() if isinstance(value, str) else (value or "")
+    return result
+
+
+def _normalize_voxcpm_local_options(options: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for raw_key, value in options.items():
+        if raw_key is None:
+            continue
+        key = str(raw_key).strip().lower()
+        canonical = VOXCPM_LOCAL_OPTION_ALIASES.get(key)
+        if not canonical and key in VOXCPM_LOCAL_SETTING_KEYS:
+            canonical = key
+        if canonical and canonical in VOXCPM_LOCAL_SETTING_KEYS:
+            normalized[canonical] = value
+
+    result: Dict[str, Any] = {}
+    for key, value in normalized.items():
+        if key in VOXCPM_LOCAL_BOOLEAN_SETTINGS:
+            result[key] = _coerce_bool(value)
+            continue
+        if key in VOXCPM_LOCAL_FLOAT_SETTINGS:
+            minimum, maximum, fallback = VOXCPM_LOCAL_FLOAT_SETTINGS[key]
+            result[key] = _coerce_float(value, minimum=minimum, maximum=maximum, fallback=fallback)
+            continue
+        if key in VOXCPM_LOCAL_INT_SETTINGS:
+            minimum, maximum, fallback = VOXCPM_LOCAL_INT_SETTINGS[key]
             result[key] = _coerce_int(value, minimum=minimum, maximum=maximum, fallback=fallback)
             continue
         result[key] = (value or "").strip() if isinstance(value, str) else (value or "")
@@ -360,7 +431,12 @@ worker_thread = None  # Background worker thread
 tts_engine_instances: Dict[str, TtsEngineBase] = {}
 engine_config_signatures: Dict[str, str] = {}
 tts_engine_lock = threading.Lock()
-chunk_regen_executor = ThreadPoolExecutor(max_workers=2)
+# Lock to prevent concurrent GPU inference across all TTS operations
+# This prevents GPU contention and "badcase" retry loops with VoxCPM
+gpu_inference_lock = threading.Lock()
+# Use max_workers=1 to prevent parallel GPU inference which causes contention
+# and "badcase" retry loops with VoxCPM and other GPU-based engines
+chunk_regen_executor = ThreadPoolExecutor(max_workers=1)
 library_cache = {
     "items": None,
     "timestamp": 0.0,
@@ -465,6 +541,7 @@ def _perform_chunk_regeneration(
     chunk_id: str,
     text_to_render: str,
     voice_override: Optional[Dict[str, Any]] = None,
+    engine_override: Optional[str] = None,
 ):
     with queue_lock:
         job_entry = jobs.get(job_id)
@@ -480,6 +557,9 @@ def _perform_chunk_regeneration(
         relative_file = chunk.get("relative_file")
         speed = config_snapshot.get("speed", 1.0)
         sample_rate = config_snapshot.get("sample_rate")
+        # Allow engine override for cross-engine regeneration
+        if engine_override:
+            config_snapshot["tts_engine"] = engine_override
 
     normalized_override = _normalize_voice_payload(voice_override)
     chunk_voice_assignment = _clone_voice_assignment(chunk.get("voice_assignment"))
@@ -501,7 +581,8 @@ def _perform_chunk_regeneration(
     if not relative_file:
         raise ValueError("Chunk does not have an associated file path.")
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="chunk_regen_", dir=job_dir))
+    # Use system temp directory instead of job_dir to avoid Windows permission issues
+    tmp_dir = Path(tempfile.mkdtemp(prefix="tts_chunk_regen_"))
     generated_files: List[str] = []
     try:
         segments = [{
@@ -510,14 +591,18 @@ def _perform_chunk_regeneration(
             "chunks": [chunk_text],
         }]
         engine_name = _normalize_engine_name(config_snapshot.get("tts_engine"))
-        engine = get_tts_engine(engine_name, config=config_snapshot)
-        generated_files = engine.generate_batch(
-            segments=segments,
-            voice_config=voice_config,
-            output_dir=str(tmp_dir),
-            speed=speed,
-            sample_rate=sample_rate,
-        )
+        
+        # Acquire GPU lock to prevent concurrent inference which causes
+        # GPU contention and "badcase" retry loops with VoxCPM
+        with gpu_inference_lock:
+            engine = get_tts_engine(engine_name, config=config_snapshot)
+            generated_files = engine.generate_batch(
+                segments=segments,
+                voice_config=voice_config,
+                output_dir=str(tmp_dir),
+                speed=speed,
+                sample_rate=sample_rate,
+            )
 
         if not generated_files:
             raise RuntimeError("TTS engine did not return any audio for the chunk.")
@@ -526,7 +611,17 @@ def _perform_chunk_regeneration(
         target_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(temp_file), str(target_path))
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        # Clean up temp directory - retry with longer delays on Windows
+        for attempt in range(5):
+            try:
+                if tmp_dir.exists():
+                    shutil.rmtree(tmp_dir)
+                break
+            except Exception as e:
+                if attempt < 4:
+                    time.sleep(0.2 * (attempt + 1))  # Increasing delay: 0.2, 0.4, 0.6, 0.8s
+                else:
+                    logger.warning("Failed to clean up temp dir %s: %s", tmp_dir, e)
 
     with queue_lock:
         job_entry = jobs.get(job_id)
@@ -581,9 +676,11 @@ def _schedule_chunk_regeneration(
     chunk_id: str,
     text_to_render: str,
     voice_payload: Optional[Dict[str, Any]] = None,
+    engine_override: Optional[str] = None,
 ):
     requested_at = datetime.now().isoformat()
     normalized_voice = _normalize_voice_payload(voice_payload)
+    normalized_engine = _normalize_engine_name(engine_override) if engine_override else None
     with queue_lock:
         job_entry = jobs.get(job_id)
         if not job_entry:
@@ -594,12 +691,13 @@ def _schedule_chunk_regeneration(
             "requested_at": requested_at,
             "error": None,
             "voice": normalized_voice,
+            "engine": normalized_engine,
         }
 
     def task():
         try:
             _update_regen_status(job_id, chunk_id, status="running", started_at=datetime.now().isoformat(), error=None)
-            _perform_chunk_regeneration(job_id, chunk_id, text_to_render, voice_override=normalized_voice)
+            _perform_chunk_regeneration(job_id, chunk_id, text_to_render, voice_override=normalized_voice, engine_override=normalized_engine)
             _update_regen_status(job_id, chunk_id, status="completed", completed_at=datetime.now().isoformat())
         except Exception as exc:  # noqa: BLE001
             logger.error("Chunk regeneration failed for job %s chunk %s: %s", job_id, chunk_id, exc, exc_info=True)
@@ -667,6 +765,18 @@ def _engine_signature(engine_name: str, config: Dict) -> str:
             str(config.get("chatterbox_turbo_replicate_seed")),
         )
         return f"{engine_name}::{'|'.join(parts)}"
+    if engine_name == "voxcpm_local":
+        parts = (
+            (config.get("voxcpm_local_model_id") or "").strip(),
+            (config.get("voxcpm_local_default_prompt") or "").strip(),
+            (config.get("voxcpm_local_default_prompt_text") or "").strip(),
+            str(config.get("voxcpm_local_cfg_value")),
+            str(config.get("voxcpm_local_inference_timesteps")),
+            str(bool(config.get("voxcpm_local_normalize", False))),
+            str(bool(config.get("voxcpm_local_denoise", False))),
+            (config.get("voxcpm_local_device") or "").strip(),
+        )
+        return f"{engine_name}::{'|'.join(parts)}"
     if engine_name == "kokoro_replicate":
         parts = (
             (config.get("replicate_api_key") or "").strip(),
@@ -727,6 +837,22 @@ def _create_engine(engine_name: str, config: Dict) -> TtsEngineBase:
             ),
         )
 
+    if engine_name == "voxcpm_local":
+        if not VOXCPM_AVAILABLE:
+            raise ImportError("voxcpm is not installed. Run setup to enable VoxCPM local mode.")
+        device = (config.get("voxcpm_local_device") or "auto").strip()
+        return get_engine(
+            "voxcpm_local",
+            device=device or "auto",
+            model_id=(config.get("voxcpm_local_model_id") or "openbmb/VoxCPM1.5").strip(),
+            default_prompt=(config.get("voxcpm_local_default_prompt") or "").strip() or None,
+            default_prompt_text=(config.get("voxcpm_local_default_prompt_text") or "").strip() or None,
+            cfg_value=float(config.get("voxcpm_local_cfg_value") or 2.0),
+            inference_timesteps=int(config.get("voxcpm_local_inference_timesteps") or 32),
+            normalize=bool(config.get("voxcpm_local_normalize", False)),
+            denoise=bool(config.get("voxcpm_local_denoise", False)),
+        )
+
     if engine_name == "kokoro_replicate":
         api_key = (config.get("replicate_api_key") or "").strip()
         if not api_key:
@@ -737,7 +863,12 @@ def _create_engine(engine_name: str, config: Dict) -> TtsEngineBase:
 
 
 def get_tts_engine(engine_name: Optional[str] = None, config: Optional[Dict] = None):
-    """Return a shared engine instance keyed by engine name and config signature."""
+    """Return a shared engine instance keyed by engine name and config signature.
+    
+    When switching to a different engine, unloads other engines to free GPU memory.
+    """
+    import gc
+    
     selected = _normalize_engine_name(engine_name)
     config = config or load_config()
     signature = _engine_signature(selected, config)
@@ -746,6 +877,32 @@ def get_tts_engine(engine_name: Optional[str] = None, config: Optional[Dict] = N
         cached = tts_engine_instances.get(selected)
         if cached and engine_config_signatures.get(selected) == signature:
             return cached
+
+        # Unload OTHER engines to free GPU memory before loading new one
+        # This prevents multiple large models from being loaded simultaneously
+        other_engines = [name for name in tts_engine_instances.keys() if name != selected]
+        for other_name in other_engines:
+            other_engine = tts_engine_instances.get(other_name)
+            if other_engine:
+                try:
+                    logger.info("Unloading engine '%s' to free GPU memory for '%s'", other_name, selected)
+                    other_engine.cleanup()
+                except Exception:
+                    logger.warning("Failed to cleanup engine '%s'", other_name, exc_info=True)
+                tts_engine_instances.pop(other_name, None)
+                engine_config_signatures.pop(other_name, None)
+        
+        # Force garbage collection and clear CUDA cache after unloading
+        if other_engines:
+            gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    allocated = torch.cuda.memory_allocated(0) / 1024**3
+                    logger.info("GPU memory after unloading other engines: %.2f GB", allocated)
+            except Exception:
+                pass
 
         if cached:
             try:
@@ -1635,6 +1792,9 @@ def _serialize_chatterbox_voice(entry: Dict[str, Any]) -> Dict[str, Any]:
         "missing_file": not exists,
         "duration_seconds": duration_seconds,
         "is_valid_prompt": bool(duration_seconds and duration_seconds >= MIN_CHATTERBOX_PROMPT_SECONDS),
+        "gender": entry.get("gender"),  # Male, Female, or None
+        "language": entry.get("language"),  # Language code like en-US
+        "source": "local",  # local voices vs external
     }
 
 
@@ -1660,10 +1820,29 @@ def get_voices():
     })
 
 
+def _get_audio_duration(file_path: Path) -> Optional[float]:
+    """Get audio duration in seconds using pydub."""
+    try:
+        from pydub import AudioSegment
+        audio = AudioSegment.from_file(str(file_path))
+        return len(audio) / 1000.0  # pydub returns milliseconds
+    except Exception as e:
+        logger.debug("Could not get duration for %s: %s", file_path.name, e)
+        return None
+
+
+# Cache for voice prompt durations to avoid re-reading files
+_voice_prompt_duration_cache: Dict[str, float] = {}
+
+
 @app.route('/api/voice-prompts', methods=['GET'])
 def list_voice_prompts():
     """List available reference audio prompts."""
     try:
+        # Load chatterbox voice registry for metadata lookup
+        chatterbox_entries = _load_chatterbox_voice_entries()
+        chatterbox_by_file = {e.get("file_name"): e for e in chatterbox_entries if e.get("file_name")}
+        
         prompts = []
         for path in sorted(VOICE_PROMPT_DIR.glob('*')):
             if not path.is_file():
@@ -1672,13 +1851,35 @@ def list_voice_prompts():
                 continue
             try:
                 size_bytes = path.stat().st_size
+                mtime = path.stat().st_mtime
             except OSError:
                 size_bytes = None
+                mtime = None
+            
+            # Check cache for duration (keyed by name + mtime)
+            cache_key = f"{path.name}:{mtime}" if mtime else None
+            duration_seconds = None
+            if cache_key and cache_key in _voice_prompt_duration_cache:
+                duration_seconds = _voice_prompt_duration_cache[cache_key]
+            else:
+                duration_seconds = _get_audio_duration(path)
+                if cache_key and duration_seconds is not None:
+                    _voice_prompt_duration_cache[cache_key] = duration_seconds
+            
+            # Get metadata from chatterbox registry if available
+            registry_entry = chatterbox_by_file.get(path.name, {})
+            gender = registry_entry.get("gender")
+            language = registry_entry.get("language")
+            display_name = registry_entry.get("name") or path.stem.replace('_', ' ').replace('-', ' ').title()
+            
             prompts.append(
                 {
                     "name": path.name,
-                    "display": path.stem.replace('_', ' ').replace('-', ' ').title(),
+                    "display": display_name,
                     "size_bytes": size_bytes,
+                    "duration_seconds": duration_seconds,
+                    "gender": gender,
+                    "language": language,
                 }
             )
         return jsonify({"success": True, "prompts": prompts})
@@ -1862,6 +2063,266 @@ def preview_chatterbox_voice(voice_id: str):
     )
 
 
+# External TTS samples from GitHub
+EXTERNAL_VOICES_CACHE_FILE = Path("data/external_voices_cache.json")
+EXTERNAL_VOICES_URL = "https://raw.githubusercontent.com/yaph/tts-samples/main/data/voices.json"
+EXTERNAL_SAMPLES_BASE_URL = "https://raw.githubusercontent.com/yaph/tts-samples/main/mp3"
+EXTERNAL_VOICES_DIR = Path("data/external_voices")
+EXTERNAL_VOICES_DIR.mkdir(parents=True, exist_ok=True)
+
+# Mapping from locale code prefix to GitHub folder name
+LOCALE_TO_FOLDER = {
+    'af': 'Afrikaans', 'sq': 'Albanian', 'am': 'Amharic', 'ar': 'Arabic',
+    'az': 'Azerbaijani', 'bn': 'Bengali', 'bs': 'Bosnian', 'bg': 'Bulgarian',
+    'my': 'Burmese', 'ca': 'Catalan', 'zh': 'Chinese', 'yue': 'Chinese',
+    'wuu': 'Chinese', 'hr': 'Croatian', 'cs': 'Czech', 'da': 'Danish',
+    'nl': 'Dutch', 'en': 'English', 'et': 'Estonian', 'fil': 'Filipino',
+    'fi': 'Finnish', 'fr': 'French', 'gl': 'Galician', 'ka': 'Georgian',
+    'de': 'German', 'el': 'Greek', 'gu': 'Gujarati', 'he': 'Hebrew',
+    'hi': 'Hindi', 'hu': 'Hungarian', 'is': 'Icelandic', 'id': 'Indonesian',
+    'ga': 'Irish', 'it': 'Italian', 'ja': 'Japanese', 'jv': 'Javanese',
+    'kn': 'Kannada', 'kk': 'Kazakh', 'km': 'Khmer', 'ko': 'Korean',
+    'lo': 'Lao', 'lv': 'Latvian', 'lt': 'Lithuanian', 'mk': 'Macedonian',
+    'ms': 'Malay', 'ml': 'Malayalam', 'mt': 'Maltese', 'mr': 'Marathi',
+    'mn': 'Mongolian', 'ne': 'Nepali', 'nb': 'Norwegian', 'ps': 'Pashto',
+    'fa': 'Persian', 'pl': 'Polish', 'pt': 'Portuguese', 'ro': 'Romanian',
+    'ru': 'Russian', 'sr': 'Serbian', 'si': 'Sinhala', 'sk': 'Slovak',
+    'sl': 'Slovenian', 'so': 'Somali', 'es': 'Spanish', 'su': 'Sundanese',
+    'sw': 'Swahili', 'sv': 'Swedish', 'ta': 'Tamil', 'te': 'Telugu',
+    'th': 'Thai', 'tr': 'Turkish', 'uk': 'Ukrainian', 'ur': 'Urdu',
+    'uz': 'Uzbek', 'vi': 'Vietnamese', 'cy': 'Welsh', 'zu': 'Zulu',
+    'eu': 'Basque',
+}
+
+def _get_github_folder_for_locale(locale: str) -> str:
+    """Get the GitHub folder name for a locale code like 'en-GB' -> 'English'."""
+    if not locale:
+        return "English"
+    # Extract language code (e.g., 'en' from 'en-GB')
+    lang_code = locale.split('-')[0].lower()
+    return LOCALE_TO_FOLDER.get(lang_code, "English")
+
+_external_voices_cache: Optional[List[Dict[str, Any]]] = None
+_external_voices_cache_time: float = 0
+
+
+def _fetch_external_voices(force_refresh: bool = False) -> List[Dict[str, Any]]:
+    """Fetch external TTS voice samples from GitHub with caching."""
+    global _external_voices_cache, _external_voices_cache_time
+    
+    cache_max_age = 3600 * 24  # 24 hours
+    now = time.time()
+    
+    # Return memory cache if fresh
+    if not force_refresh and _external_voices_cache and (now - _external_voices_cache_time) < cache_max_age:
+        return _external_voices_cache
+    
+    # Try to load from file cache
+    if not force_refresh and EXTERNAL_VOICES_CACHE_FILE.exists():
+        try:
+            cache_mtime = EXTERNAL_VOICES_CACHE_FILE.stat().st_mtime
+            if (now - cache_mtime) < cache_max_age:
+                with EXTERNAL_VOICES_CACHE_FILE.open("r", encoding="utf-8") as f:
+                    _external_voices_cache = json.load(f)
+                    _external_voices_cache_time = now
+                    return _external_voices_cache
+        except Exception as e:
+            logger.warning("Failed to load external voices cache: %s", e)
+    
+    # Fetch from GitHub
+    try:
+        import urllib.request
+        logger.info("Fetching external TTS voices from GitHub...")
+        with urllib.request.urlopen(EXTERNAL_VOICES_URL, timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        
+        # Save to file cache
+        EXTERNAL_VOICES_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with EXTERNAL_VOICES_CACHE_FILE.open("w", encoding="utf-8") as f:
+            json.dump(data, f)
+        
+        _external_voices_cache = data
+        _external_voices_cache_time = now
+        logger.info("Fetched %d external TTS voices", len(data))
+        return data
+    except Exception as e:
+        logger.error("Failed to fetch external voices: %s", e)
+        # Return stale cache if available
+        if _external_voices_cache:
+            return _external_voices_cache
+        return []
+
+
+def _serialize_external_voice(voice: Dict[str, Any]) -> Dict[str, Any]:
+    """Serialize an external voice entry for the API."""
+    short_name = voice.get("ShortName", "")
+    locale = voice.get("Locale", "")
+    gender = voice.get("Gender", "")
+    friendly_name = voice.get("FriendlyName", "")
+    
+    # Extract clean name from FriendlyName (e.g., "Microsoft Jenny Online (Natural) - English (United States)")
+    name_match = re.match(r"Microsoft (\w+)", friendly_name)
+    display_name = name_match.group(1) if name_match else short_name
+    
+    # Check if downloaded locally
+    local_file = EXTERNAL_VOICES_DIR / f"{short_name}.mp3"
+    is_downloaded = local_file.exists()
+    
+    # Get correct GitHub folder name (e.g., "English" not "en-GB")
+    folder_name = _get_github_folder_for_locale(locale)
+    
+    return {
+        "id": f"external:{short_name}",
+        "name": display_name,
+        "short_name": short_name,
+        "file_name": f"{short_name}.mp3" if is_downloaded else None,
+        "prompt_path": str(local_file) if is_downloaded else None,
+        "gender": gender,
+        "language": locale,
+        "friendly_name": friendly_name,
+        "source": "external",
+        "is_downloaded": is_downloaded,
+        "download_url": f"{EXTERNAL_SAMPLES_BASE_URL}/{folder_name}/{short_name}.mp3",
+        "voice_personalities": voice.get("VoiceTag", {}).get("VoicePersonalities", []),
+    }
+
+
+@app.route('/api/external-voices', methods=['GET'])
+def list_external_voices():
+    """List available external TTS voice samples from GitHub."""
+    try:
+        force_refresh = request.args.get('refresh', '').lower() == 'true'
+        voices = _fetch_external_voices(force_refresh=force_refresh)
+        serialized = [_serialize_external_voice(v) for v in voices]
+        return jsonify({
+            "success": True,
+            "voices": serialized,
+            "total": len(serialized),
+        })
+    except Exception as e:
+        logger.error("Failed to list external voices: %s", e, exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/external-voices/<voice_id>/download', methods=['POST'])
+def download_external_voice(voice_id: str):
+    """Download an external voice sample to use locally."""
+    try:
+        # Find the voice in the cache
+        voices = _fetch_external_voices()
+        voice = None
+        for v in voices:
+            if v.get("ShortName") == voice_id:
+                voice = v
+                break
+        
+        if not voice:
+            return jsonify({"success": False, "error": "Voice not found"}), 404
+        
+        short_name = voice.get("ShortName")
+        locale = voice.get("Locale")
+        folder_name = _get_github_folder_for_locale(locale)
+        download_url = f"{EXTERNAL_SAMPLES_BASE_URL}/{folder_name}/{short_name}.mp3"
+        local_file = EXTERNAL_VOICES_DIR / f"{short_name}.mp3"
+        
+        # Download the file
+        import urllib.request
+        logger.info("Downloading external voice: %s", short_name)
+        urllib.request.urlretrieve(download_url, str(local_file))
+        
+        # Also copy to voice_prompts directory for use with TTS engines
+        voice_prompt_file = VOICE_PROMPT_DIR / f"{short_name}.mp3"
+        shutil.copy(str(local_file), str(voice_prompt_file))
+        
+        # Add to chatterbox voices registry
+        entries = _load_chatterbox_voice_entries()
+        existing = next((e for e in entries if e.get("file_name") == f"{short_name}.mp3"), None)
+        if not existing:
+            # Extract display name
+            friendly_name = voice.get("FriendlyName", "")
+            name_match = re.match(r"Microsoft (\w+)", friendly_name)
+            display_name = name_match.group(1) if name_match else short_name
+            
+            new_entry = {
+                "id": str(uuid.uuid4()),
+                "name": f"{display_name} ({locale})",
+                "file_name": f"{short_name}.mp3",
+                "created_at": datetime.utcnow().isoformat(),
+                "gender": voice.get("Gender"),
+                "language": locale,
+            }
+            entries.append(new_entry)
+            _save_chatterbox_voice_entries(entries)
+        
+        return jsonify({
+            "success": True,
+            "voice": _serialize_external_voice(voice),
+            "message": f"Downloaded {short_name}.mp3"
+        })
+    except Exception as e:
+        logger.error("Failed to download external voice %s: %s", voice_id, e, exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/external-voices/<voice_id>/preview')
+def preview_external_voice(voice_id: str):
+    """Stream preview of an external voice (downloads if not cached)."""
+    try:
+        voices = _fetch_external_voices()
+        voice = None
+        for v in voices:
+            if v.get("ShortName") == voice_id:
+                voice = v
+                break
+        
+        if not voice:
+            return jsonify({"success": False, "error": "Voice not found"}), 404
+        
+        short_name = voice.get("ShortName")
+        local_file = EXTERNAL_VOICES_DIR / f"{short_name}.mp3"
+        
+        # Download if not cached
+        if not local_file.exists():
+            locale = voice.get("Locale")
+            folder_name = _get_github_folder_for_locale(locale)
+            download_url = f"{EXTERNAL_SAMPLES_BASE_URL}/{folder_name}/{short_name}.mp3"
+            import urllib.request
+            urllib.request.urlretrieve(download_url, str(local_file))
+        
+        return send_file(
+            local_file,
+            mimetype='audio/mpeg',
+            conditional=True,
+            as_attachment=False,
+            download_name=f"{short_name}.mp3",
+        )
+    except Exception as e:
+        logger.error("Failed to preview external voice %s: %s", voice_id, e, exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/chatterbox-voices/<voice_id>/update', methods=['PUT'])
+def update_chatterbox_voice_metadata(voice_id: str):
+    """Update metadata (gender, language) for a chatterbox voice."""
+    data = request.get_json() or {}
+    
+    entries = _load_chatterbox_voice_entries()
+    entry = _resolve_chatterbox_voice(voice_id, entries)
+    if not entry:
+        return jsonify({"success": False, "error": "Voice not found."}), 404
+    
+    # Update allowed fields
+    if "gender" in data:
+        entry["gender"] = data["gender"] if data["gender"] in ("Male", "Female", None) else None
+    if "language" in data:
+        entry["language"] = data["language"]
+    if "name" in data and data["name"]:
+        entry["name"] = data["name"].strip()
+    
+    _save_chatterbox_voice_entries(entries)
+    return jsonify({"success": True, "voice": _serialize_chatterbox_voice(entry)})
+
+
 @app.route('/api/voices/samples', methods=['POST'])
 def generate_voice_samples_api():
     """Generate preview samples for all voices."""
@@ -1949,6 +2410,7 @@ def request_chunk_regeneration(job_id: str):
     chunk_id = (data.get("chunk_id") or "").strip()
     updated_text = (data.get("text") or "").strip()
     voice_payload = data.get("voice") or {}
+    engine_override = (data.get("engine") or "").strip() or None
 
     if not chunk_id:
         return jsonify({"success": False, "error": "chunk_id is required"}), 400
@@ -1969,7 +2431,7 @@ def request_chunk_regeneration(job_id: str):
             if task_state and task_state.get("status") in {"queued", "running"}:
                 return jsonify({"success": False, "error": "Chunk regeneration already in progress"}), 409
 
-        _schedule_chunk_regeneration(job_id, chunk_id, updated_text, voice_payload)
+        _schedule_chunk_regeneration(job_id, chunk_id, updated_text, voice_payload, engine_override=engine_override)
         return jsonify({"success": True})
     except ValueError as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
@@ -1983,6 +2445,7 @@ def request_full_job_regeneration(job_id: str):
     """Schedule regeneration for every chunk in the job."""
     data = request.json or {}
     chunk_updates_raw = data.get("chunks") or []
+    global_engine_override = (data.get("engine") or "").strip() or None
     chunk_updates: Dict[str, Dict[str, Any]] = {}
     for entry in chunk_updates_raw:
         if not isinstance(entry, dict):
@@ -1993,6 +2456,7 @@ def request_full_job_regeneration(job_id: str):
         chunk_updates[chunk_key] = {
             "text": (entry.get("text") or "").strip(),
             "voice": entry.get("voice"),
+            "engine": (entry.get("engine") or "").strip() or None,
         }
 
     try:
@@ -2006,7 +2470,7 @@ def request_full_job_regeneration(job_id: str):
             job_chunks = job_entry.get("chunks") or []
             if not job_chunks:
                 return jsonify({"success": False, "error": "No chunks available to regenerate"}), 400
-            tasks_to_schedule: List[Tuple[str, str, Optional[Dict[str, Any]]]] = []
+            tasks_to_schedule: List[Tuple[str, str, Optional[Dict[str, Any]], Optional[str]]] = []
             for chunk in job_chunks:
                 chunk_id = chunk.get("id")
                 if not chunk_id:
@@ -2016,15 +2480,197 @@ def request_full_job_regeneration(job_id: str):
                 if not text_value:
                     raise ValueError(f"Chunk {chunk_id} does not have text to regenerate.")
                 voice_payload = overrides.get("voice")
-                tasks_to_schedule.append((chunk_id, text_value, voice_payload))
-        for chunk_id, text_value, voice_payload in tasks_to_schedule:
-            _schedule_chunk_regeneration(job_id, chunk_id, text_value, voice_payload)
+                engine_override = overrides.get("engine") or global_engine_override
+                tasks_to_schedule.append((chunk_id, text_value, voice_payload, engine_override))
+        for chunk_id, text_value, voice_payload, engine_override in tasks_to_schedule:
+            _schedule_chunk_regeneration(job_id, chunk_id, text_value, voice_payload, engine_override=engine_override)
         return jsonify({"success": True, "queued_chunks": len(tasks_to_schedule)})
     except ValueError as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
     except Exception as exc:  # pragma: no cover - defensive
         logger.error("Failed to queue full regeneration for job %s: %s", job_id, exc, exc_info=True)
         return jsonify({"success": False, "error": "Failed to queue full regeneration"}), 500
+
+
+@app.route('/api/jobs/<job_id>/review/apply-fx', methods=['POST'])
+def apply_chunk_audio_effects(job_id: str):
+    """Apply audio effects (speed, pitch) to one or more chunks without regenerating."""
+    from src.audio_effects import AudioPostProcessor, VoiceFXSettings
+    import soundfile as sf
+    
+    data = request.json or {}
+    chunks_fx = data.get("chunks") or []
+    
+    if not chunks_fx:
+        return jsonify({"success": False, "error": "No chunks specified"}), 400
+    
+    try:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if not job_entry:
+                return jsonify({"success": False, "error": "Job not found"}), 404
+            _ensure_review_ready(job_entry)
+            job_dir = _job_dir_from_entry(job_id, job_entry)
+            job_chunks = job_entry.get("chunks") or []
+            chunk_map = {c.get("id"): c for c in job_chunks if c.get("id")}
+        
+        processor = AudioPostProcessor()
+        processed_count = 0
+        errors = []
+        
+        for fx_entry in chunks_fx:
+            chunk_id = (fx_entry.get("chunk_id") or "").strip()
+            if not chunk_id:
+                continue
+            
+            chunk = chunk_map.get(chunk_id)
+            if not chunk:
+                errors.append(f"Chunk {chunk_id} not found")
+                continue
+            
+            relative_file = chunk.get("relative_file")
+            if not relative_file:
+                errors.append(f"Chunk {chunk_id} has no audio file")
+                continue
+            
+            audio_path = job_dir / relative_file
+            if not audio_path.exists():
+                errors.append(f"Audio file not found for chunk {chunk_id}")
+                continue
+            
+            # Parse FX settings
+            speed = float(fx_entry.get("speed", 1.0) or 1.0)
+            pitch = float(fx_entry.get("pitch", 0.0) or 0.0)
+            
+            # Skip if no changes
+            if abs(speed - 1.0) < 1e-3 and abs(pitch) < 1e-3:
+                continue
+            
+            try:
+                # Load audio
+                audio_data, sample_rate = sf.read(str(audio_path), dtype='float32')
+                
+                # Create FX settings - use no blending for post-apply effects
+                fx = VoiceFXSettings(
+                    pitch_semitones=max(-12.0, min(12.0, pitch)),
+                    speed=max(0.5, min(2.0, speed)),
+                    tone="neutral"
+                )
+                
+                # Apply effects without blending (blend_override=0 means no original mixed in)
+                processed = processor.apply(audio_data, sample_rate, fx, blend_override=0.0)
+                
+                # Save back to file
+                sf.write(str(audio_path), processed, sample_rate)
+                
+                # Update chunk metadata
+                with queue_lock:
+                    job_entry = jobs.get(job_id)
+                    if job_entry:
+                        for c in job_entry.get("chunks", []):
+                            if c.get("id") == chunk_id:
+                                c["fx_applied"] = {"speed": speed, "pitch": pitch}
+                                c["modified_at"] = datetime.now().isoformat()
+                                break
+                
+                processed_count += 1
+                
+            except Exception as exc:
+                logger.error("Failed to apply FX to chunk %s: %s", chunk_id, exc, exc_info=True)
+                errors.append(f"Failed to process chunk {chunk_id}: {str(exc)}")
+        
+        # Persist metadata changes
+        _persist_chunks_metadata(job_id, job_dir)
+        
+        return jsonify({
+            "success": True,
+            "processed": processed_count,
+            "errors": errors if errors else None
+        })
+        
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("Failed to apply audio effects for job %s: %s", job_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to apply audio effects"}), 500
+
+
+@app.route('/api/jobs/<job_id>/review/preview-fx', methods=['POST'])
+def preview_chunk_audio_effects(job_id: str):
+    """Preview audio effects on a chunk without saving. Returns the processed audio file."""
+    from src.audio_effects import AudioPostProcessor, VoiceFXSettings
+    import soundfile as sf
+    import tempfile
+    import io
+    
+    data = request.json or {}
+    chunk_id = (data.get("chunk_id") or "").strip()
+    speed = float(data.get("speed", 1.0) or 1.0)
+    pitch = float(data.get("pitch", 0.0) or 0.0)
+    
+    if not chunk_id:
+        return jsonify({"success": False, "error": "chunk_id is required"}), 400
+    
+    try:
+        # First try to restore job from library if not in memory
+        job_dir = OUTPUT_DIR / job_id
+        if not job_dir.exists():
+            return jsonify({"success": False, "error": "Job not found"}), 404
+        
+        # Load chunks metadata to find the chunk
+        chunks_meta_path = job_dir / "chunks_metadata.json"
+        chunk = None
+        if chunks_meta_path.exists():
+            with chunks_meta_path.open("r", encoding="utf-8") as f:
+                chunks_meta = json.load(f)
+                for c in chunks_meta.get("chunks", []):
+                    if c.get("id") == chunk_id:
+                        chunk = c
+                        break
+        
+        if not chunk:
+            return jsonify({"success": False, "error": "Chunk not found"}), 404
+        
+        relative_file = chunk.get("relative_file")
+        if not relative_file:
+            return jsonify({"success": False, "error": "Chunk has no audio file"}), 400
+        
+        audio_path = job_dir / relative_file
+        if not audio_path.exists():
+            return jsonify({"success": False, "error": "Audio file not found"}), 404
+        
+        # Load audio
+        audio_data, sample_rate = sf.read(str(audio_path), dtype='float32')
+        
+        # If no effects, just return the original
+        if abs(speed - 1.0) < 1e-3 and abs(pitch) < 1e-3:
+            return send_file(str(audio_path), mimetype='audio/wav')
+        
+        # Create FX settings and apply without blending
+        fx = VoiceFXSettings(
+            pitch_semitones=max(-12.0, min(12.0, pitch)),
+            speed=max(0.5, min(2.0, speed)),
+            tone="neutral"
+        )
+        
+        processor = AudioPostProcessor()
+        processed = processor.apply(audio_data, sample_rate, fx, blend_override=0.0)
+        
+        # Write to in-memory buffer
+        buffer = io.BytesIO()
+        sf.write(buffer, processed, sample_rate, format='WAV')
+        buffer.seek(0)
+        
+        return send_file(
+            buffer,
+            mimetype='audio/wav',
+            as_attachment=False,
+            download_name=f"preview_{chunk_id}.wav"
+        )
+        
+    except Exception as exc:
+        logger.error("Failed to preview audio effects for job %s chunk %s: %s", job_id, chunk_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to preview audio effects"}), 500
 
 
 def _merge_review_job(job_id: str, job_entry: Dict[str, Any], manifest: Dict[str, Any]):
@@ -3453,7 +4099,44 @@ def cleanup_vram():
     })
 
 
+def _cleanup_orphaned_regen_folders():
+    """Clean up leftover chunk_regen_* temp folders from previous sessions."""
+    cleaned = 0
+    
+    # Clean up old-style folders in job directories (legacy)
+    try:
+        for job_dir in OUTPUT_DIR.iterdir():
+            if not job_dir.is_dir():
+                continue
+            for item in job_dir.iterdir():
+                if item.is_dir() and item.name.startswith("chunk_regen_"):
+                    try:
+                        shutil.rmtree(item)
+                        cleaned += 1
+                    except Exception as e:
+                        logger.warning("Failed to clean up orphaned temp dir %s: %s", item, e)
+    except Exception as e:
+        logger.warning("Error scanning for orphaned regen folders in OUTPUT_DIR: %s", e)
+    
+    # Clean up new-style folders in system temp directory
+    try:
+        temp_base = Path(tempfile.gettempdir())
+        for item in temp_base.iterdir():
+            if item.is_dir() and item.name.startswith("tts_chunk_regen_"):
+                try:
+                    shutil.rmtree(item)
+                    cleaned += 1
+                except Exception as e:
+                    logger.warning("Failed to clean up orphaned temp dir %s: %s", item, e)
+    except Exception as e:
+        logger.warning("Error scanning for orphaned regen folders in temp dir: %s", e)
+    
+    if cleaned:
+        logger.info("Cleaned up %d orphaned chunk regen temp folders", cleaned)
+
+
 if __name__ == '__main__':
     logger.info("Starting TTS-Story server")
     _cleanup_orphaned_chatterbox_voices()
+    _cleanup_orphaned_regen_folders()
     app.run(host='0.0.0.0', port=5000, debug=True)
