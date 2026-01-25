@@ -249,7 +249,9 @@ function toggleEngineSettingsSections(engineName) {
         'kokoro_replicate': 'kokoro',
         'chatterbox_turbo_local': 'chatterbox-local',
         'chatterbox_turbo_replicate': 'chatterbox-replicate',
-        'voxcpm_local': 'voxcpm'
+        'voxcpm_local': 'voxcpm',
+        'qwen3_custom': 'qwen3',
+        'qwen3_clone': 'qwen3'
     };
     
     const targetTab = engineTabMap[engineName];
@@ -611,6 +613,62 @@ function applySettings(settings) {
         voxcpmDenoise.checked = settings.voxcpm_local_denoise === true;
     }
 
+    // Qwen3 CustomVoice settings
+    const qwen3Model = document.getElementById('qwen3-custom-model-id');
+    if (qwen3Model) {
+        qwen3Model.value = settings.qwen3_custom_model_id || 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice';
+    }
+    const qwen3Device = document.getElementById('qwen3-custom-device');
+    if (qwen3Device) {
+        qwen3Device.value = settings.qwen3_custom_device || 'auto';
+    }
+    const qwen3Dtype = document.getElementById('qwen3-custom-dtype');
+    if (qwen3Dtype) {
+        qwen3Dtype.value = settings.qwen3_custom_dtype || 'bfloat16';
+    }
+    const qwen3Attn = document.getElementById('qwen3-custom-attn');
+    if (qwen3Attn) {
+        qwen3Attn.value = settings.qwen3_custom_attn_implementation || 'flash_attention_2';
+    }
+    const qwen3Language = document.getElementById('qwen3-custom-language');
+    if (qwen3Language) {
+        qwen3Language.value = settings.qwen3_custom_default_language || 'Auto';
+    }
+    const qwen3Instruct = document.getElementById('qwen3-custom-instruct');
+    if (qwen3Instruct) {
+        qwen3Instruct.value = settings.qwen3_custom_default_instruct || '';
+    }
+
+    // Qwen3 Voice Clone settings
+    const qwen3CloneModel = document.getElementById('qwen3-clone-model-id');
+    if (qwen3CloneModel) {
+        qwen3CloneModel.value = settings.qwen3_clone_model_id || 'Qwen/Qwen3-TTS-12Hz-1.7B-Base';
+    }
+    const qwen3CloneDevice = document.getElementById('qwen3-clone-device');
+    if (qwen3CloneDevice) {
+        qwen3CloneDevice.value = settings.qwen3_clone_device || 'auto';
+    }
+    const qwen3CloneDtype = document.getElementById('qwen3-clone-dtype');
+    if (qwen3CloneDtype) {
+        qwen3CloneDtype.value = settings.qwen3_clone_dtype || 'bfloat16';
+    }
+    const qwen3CloneAttn = document.getElementById('qwen3-clone-attn');
+    if (qwen3CloneAttn) {
+        qwen3CloneAttn.value = settings.qwen3_clone_attn_implementation || 'flash_attention_2';
+    }
+    const qwen3CloneLanguage = document.getElementById('qwen3-clone-language');
+    if (qwen3CloneLanguage) {
+        qwen3CloneLanguage.value = settings.qwen3_clone_default_language || 'Auto';
+    }
+    const qwen3ClonePrompt = document.getElementById('qwen3-clone-prompt');
+    if (qwen3ClonePrompt) {
+        qwen3ClonePrompt.value = settings.qwen3_clone_default_prompt || '';
+    }
+    const qwen3ClonePromptText = document.getElementById('qwen3-clone-prompt-text');
+    if (qwen3ClonePromptText) {
+        qwen3ClonePromptText.value = settings.qwen3_clone_default_prompt_text || '';
+    }
+
     // Chatterbox Replicate settings (uses shared replicate_api_key)
     const turboModelInput = document.getElementById('chatterbox-turbo-replicate-model');
     if (turboModelInput) {
@@ -688,6 +746,19 @@ async function saveSettings() {
         voxcpm_local_inference_timesteps: parseInt(document.getElementById('voxcpm-local-steps').value, 10) || 10,
         voxcpm_local_normalize: document.getElementById('voxcpm-local-normalize').checked,
         voxcpm_local_denoise: document.getElementById('voxcpm-local-denoise').checked,
+        qwen3_custom_model_id: document.getElementById('qwen3-custom-model-id').value,
+        qwen3_custom_device: document.getElementById('qwen3-custom-device').value,
+        qwen3_custom_dtype: document.getElementById('qwen3-custom-dtype').value,
+        qwen3_custom_attn_implementation: document.getElementById('qwen3-custom-attn').value,
+        qwen3_custom_default_language: document.getElementById('qwen3-custom-language').value,
+        qwen3_custom_default_instruct: document.getElementById('qwen3-custom-instruct').value,
+        qwen3_clone_model_id: document.getElementById('qwen3-clone-model-id').value,
+        qwen3_clone_device: document.getElementById('qwen3-clone-device').value,
+        qwen3_clone_dtype: document.getElementById('qwen3-clone-dtype').value,
+        qwen3_clone_attn_implementation: document.getElementById('qwen3-clone-attn').value,
+        qwen3_clone_default_language: document.getElementById('qwen3-clone-language').value,
+        qwen3_clone_default_prompt: document.getElementById('qwen3-clone-prompt').value,
+        qwen3_clone_default_prompt_text: document.getElementById('qwen3-clone-prompt-text').value,
         chatterbox_turbo_replicate_model: document.getElementById('chatterbox-turbo-replicate-model').value,
         chatterbox_turbo_replicate_voice: document.getElementById('chatterbox-turbo-replicate-voice').value,
         chatterbox_turbo_replicate_temperature: parseFloat(document.getElementById('chatterbox-turbo-replicate-temperature').value) || 0.8,
@@ -768,7 +839,20 @@ async function resetSettings() {
         voxcpm_local_cfg_value: 2.5,
         voxcpm_local_inference_timesteps: 20,
         voxcpm_local_normalize: true,
-        voxcpm_local_denoise: false
+        voxcpm_local_denoise: false,
+        qwen3_custom_model_id: 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice',
+        qwen3_custom_device: 'auto',
+        qwen3_custom_dtype: 'bfloat16',
+        qwen3_custom_attn_implementation: 'flash_attention_2',
+        qwen3_custom_default_language: 'Auto',
+        qwen3_custom_default_instruct: '',
+        qwen3_clone_model_id: 'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
+        qwen3_clone_device: 'auto',
+        qwen3_clone_dtype: 'bfloat16',
+        qwen3_clone_attn_implementation: 'flash_attention_2',
+        qwen3_clone_default_language: 'Auto',
+        qwen3_clone_default_prompt: '',
+        qwen3_clone_default_prompt_text: ''
     };
     
     try {

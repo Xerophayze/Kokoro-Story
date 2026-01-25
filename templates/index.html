@@ -91,6 +91,8 @@
                                     <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
                                     <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
                                     <option value="voxcpm_local">VoxCPM 1.5 · Local GPU</option>
+                                    <option value="qwen3_custom">Qwen3-TTS · Custom Voice</option>
+                                    <option value="qwen3_clone">Qwen3-TTS · Voice Clone</option>
                                 </select>
                             </div>
                         </div>
@@ -146,6 +148,33 @@
                                     <div class="help-text" id="chatterbox-reference-details"></div>
                                 </div>
                             </div>
+                        </div>
+                        <div id="qwen3-voice-card" class="engine-subcard" style="display: none;">
+                            <div class="default-voice-header">
+                                <div>
+                                    <h2>Qwen3 Custom Voice</h2>
+                                    <p class="help-text">Select a built-in Qwen3 speaker and language.</p>
+                                </div>
+                            </div>
+                            <div class="engine-options-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 10px;">
+                                <div class="form-group">
+                                    <label for="qwen3-default-speaker">Speaker</label>
+                                    <select id="qwen3-default-speaker">
+                                        <option value="">Select Qwen3 speaker...</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="qwen3-default-language">Language</label>
+                                    <select id="qwen3-default-language">
+                                        <option value="Auto">Auto</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="qwen3-default-instruct">Instruction</label>
+                                    <input type="text" id="qwen3-default-instruct" placeholder="e.g., calm, warm narration">
+                                </div>
+                            </div>
+                            <div class="help-text" id="qwen3-speaker-details"></div>
                         </div>
                     </div>
 
@@ -323,111 +352,178 @@
 
         <!-- Available Voices Tab -->
         <div id="voices-tab" class="tab-content">
-            <div class="section">
-                <h2>Available Voices</h2>
-                <p class="help-text">
-                    Explore all Kokoro voices. Click any voice to hear a preview sample.
-                </p>
-                <div id="voice-sample-status" class="sample-status info" style="margin-bottom: 15px;">
-                    Loading voice preview status...
+            <div class="voices-accordion">
+                <div class="section voices-section" data-voices-section="kokoro">
+                    <div class="voices-section-header">
+                        <div>
+                            <h2>Available Voices</h2>
+                            <p class="help-text">Explore all Kokoro voices. Click any voice to hear a preview sample.</p>
+                        </div>
+                        <span class="voices-section-toggle">▼</span>
+                    </div>
+                    <div class="voices-section-content">
+                        <div id="voice-sample-status" class="sample-status info" style="margin-bottom: 15px;">
+                            Loading voice preview status...
+                        </div>
+                        <div id="voice-sample-controls" class="sample-controls">
+                            <button id="generate-voice-samples-btn" class="btn btn-primary" onclick="generateSamples(false)">
+                                Generate Voice Previews
+                            </button>
+                            <button class="btn btn-secondary" onclick="generateSamples(true)">
+                                Regenerate (Overwrite)
+                            </button>
+                        </div>
+                        <div id="voice-library"></div>
+                    </div>
                 </div>
-                <div id="voice-sample-controls" class="sample-controls">
-                    <button id="generate-voice-samples-btn" class="btn btn-primary" onclick="generateSamples(false)">
-                        Generate Voice Previews
-                    </button>
-                    <button class="btn btn-secondary" onclick="generateSamples(true)">
-                        Regenerate (Overwrite)
-                    </button>
-                </div>
-                <div id="voice-library"></div>
-            </div>
 
-            <div class="section" id="custom-voices-section">
-                <div class="custom-voices-header">
-                    <div>
-                        <h2>Custom Voice Blends</h2>
-                        <p class="help-text">Craft new voices by blending the tone of existing speakers.</p>
+                <div class="section voices-section collapsed" id="custom-voices-section" data-voices-section="custom">
+                    <div class="voices-section-header">
+                        <div>
+                            <h2>Custom Voice Blends</h2>
+                            <p class="help-text">Craft new voices by blending the tone of existing speakers.</p>
+                        </div>
+                        <div class="voices-section-actions">
+                            <button class="btn btn-primary" id="create-custom-voice-btn">New Custom Voice</button>
+                            <span class="voices-section-toggle">▶</span>
+                        </div>
                     </div>
-                    <button class="btn btn-primary" id="create-custom-voice-btn">New Custom Voice</button>
+                    <div class="voices-section-content">
+                        <div id="custom-voices-list" class="custom-voices-grid">
+                            <p class="help-text">Loading custom voices...</p>
+                        </div>
+                    </div>
                 </div>
-                <div id="custom-voices-list" class="custom-voices-grid">
-                    <p class="help-text">Loading custom voices...</p>
-                </div>
-            </div>
 
-            <div class="section" id="chatterbox-voices-section">
-                <div class="custom-voices-header">
-                    <div>
-                        <h2>Voice Prompts</h2>
-                        <p class="help-text">Voice samples for Chatterbox and VoxCPM. Upload your own or browse 300+ external voices.</p>
+                <div class="section voices-section collapsed" id="qwen-voices-section" data-voices-section="qwen">
+                    <div class="voices-section-header">
+                        <div>
+                            <h2>Qwen Voice Creation</h2>
+                            <p class="help-text">Design a voice style with Qwen3-TTS, preview it, then save it as a voice prompt.</p>
+                        </div>
+                        <span class="voices-section-toggle">▶</span>
+                    </div>
+                    <div class="voices-section-content">
+                        <div class="qwen-voice-grid">
+                            <div class="form-group">
+                                <label for="qwen-voice-name">Voice Name</label>
+                                <input type="text" id="qwen-voice-name" placeholder="e.g. Velvet Noir">
+                            </div>
+                            <div class="form-group">
+                                <label for="qwen-voice-gender">Gender</label>
+                                <select id="qwen-voice-gender">
+                                    <option value="">— Not specified —</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="qwen-voice-language">Language</label>
+                                <select id="qwen-voice-language">
+                                    <option value="Auto">Auto</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="qwen-voice-description">Short Description</label>
+                                <input type="text" id="qwen-voice-description" placeholder="Moody, intimate noir narrator">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="qwen-voice-text">Sample Text</label>
+                            <textarea id="qwen-voice-text" rows="3" placeholder="Type a short script for the preview clip..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="qwen-voice-instruct">Voice Style Instruction</label>
+                            <textarea id="qwen-voice-instruct" rows="3" placeholder="e.g., Speak with controlled intensity and a smoky, cinematic tone."></textarea>
+                        </div>
+                        <div class="qwen-voice-actions">
+                            <button type="button" class="btn btn-primary" id="qwen-voice-generate-btn">Generate Preview</button>
+                            <button type="button" class="btn btn-secondary" id="qwen-voice-save-btn" disabled>Save to Voice Prompts</button>
+                            <span class="help-text" id="qwen-voice-status"></span>
+                        </div>
+                        <div class="qwen-voice-preview">
+                            <audio id="qwen-voice-preview" controls></audio>
+                        </div>
                     </div>
                 </div>
-                <form id="chatterbox-voice-form" class="chatterbox-voice-form">
-                    <div class="form-group">
-                        <label for="chatterbox-voice-name">Voice Name</label>
-                        <input type="text" id="chatterbox-voice-name" placeholder="e.g. Detective Rowan">
+
+                <div class="section voices-section collapsed" id="chatterbox-voices-section" data-voices-section="prompts">
+                    <div class="voices-section-header">
+                        <div>
+                            <h2>Voice Prompts</h2>
+                            <p class="help-text">Voice samples for Chatterbox and VoxCPM. Upload your own or browse 300+ external voices.</p>
+                        </div>
+                        <span class="voices-section-toggle">▶</span>
                     </div>
-                    <div class="form-group">
-                        <label for="chatterbox-voice-file">Audio File</label>
-                        <input type="file" id="chatterbox-voice-file" accept=".wav,.mp3,.m4a,.flac,.ogg">
+                    <div class="voices-section-content">
+                        <form id="chatterbox-voice-form" class="chatterbox-voice-form">
+                            <div class="form-group">
+                                <label for="chatterbox-voice-name">Voice Name</label>
+                                <input type="text" id="chatterbox-voice-name" placeholder="e.g. Detective Rowan">
+                            </div>
+                            <div class="form-group">
+                                <label for="chatterbox-voice-file">Audio File</label>
+                                <input type="file" id="chatterbox-voice-file" accept=".wav,.mp3,.m4a,.flac,.ogg">
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Save Voice</button>
+                            </div>
+                        </form>
+                        <div class="chatterbox-dropzone" id="chatterbox-dropzone">
+                            <input type="file" id="chatterbox-dropzone-input" accept=".wav,.mp3,.m4a,.flac,.ogg" multiple>
+                            <div class="dropzone-content">
+                                <h3>Bulk import via drag & drop</h3>
+                                <p>Drop multiple WAV/MP3 clips (5–10s). We'll keep any clips ≥5s and name them after the file.</p>
+                                <button type="button" class="btn btn-secondary btn-sm">Browse Files</button>
+                            </div>
+                            <div class="dropzone-status" id="chatterbox-dropzone-status"></div>
+                        </div>
+                        
+                        <!-- Voice List Filters -->
+                        <div class="voice-list-controls" id="voice-list-controls">
+                            <div class="voice-filter-row">
+                                <input type="text" id="voice-search-input" placeholder="Search voices..." class="voice-search-input">
+                                <select id="voice-filter-source" class="voice-filter-select">
+                                    <option value="all">All Sources</option>
+                                    <option value="local">Local Only</option>
+                                    <option value="external">External (GitHub)</option>
+                                </select>
+                                <select id="voice-filter-gender" class="voice-filter-select">
+                                    <option value="all">All Genders</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                </select>
+                                <select id="voice-filter-language" class="voice-filter-select">
+                                    <option value="all">All Languages</option>
+                                </select>
+                                <button type="button" class="btn btn-secondary btn-sm" id="load-external-voices-btn">
+                                    Load External Voices
+                                </button>
+                            </div>
+                            <div class="voice-list-stats" id="voice-list-stats">
+                                <span id="voice-count-display">0 voices</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Voice List Table -->
+                        <div class="voice-list-table-container">
+                            <table class="voice-list-table" id="chatterbox-voice-table">
+                                <thead>
+                                    <tr>
+                                        <th class="sortable" data-sort="name">Name <span class="sort-icon"></span></th>
+                                        <th class="sortable" data-sort="gender">Gender <span class="sort-icon"></span></th>
+                                        <th class="sortable" data-sort="language">Language <span class="sort-icon"></span></th>
+                                        <th class="sortable" data-sort="duration">Duration <span class="sort-icon"></span></th>
+                                        <th class="sortable" data-sort="source">Source <span class="sort-icon"></span></th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="chatterbox-voice-list">
+                                    <tr><td colspan="6" class="help-text">No saved voices yet. Add one above.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary">Save Voice</button>
-                    </div>
-                </form>
-                <div class="chatterbox-dropzone" id="chatterbox-dropzone">
-                    <input type="file" id="chatterbox-dropzone-input" accept=".wav,.mp3,.m4a,.flac,.ogg" multiple>
-                    <div class="dropzone-content">
-                        <h3>Bulk import via drag & drop</h3>
-                        <p>Drop multiple WAV/MP3 clips (5–10s). We'll keep any clips ≥5s and name them after the file.</p>
-                        <button type="button" class="btn btn-secondary btn-sm">Browse Files</button>
-                    </div>
-                    <div class="dropzone-status" id="chatterbox-dropzone-status"></div>
-                </div>
-                
-                <!-- Voice List Filters -->
-                <div class="voice-list-controls" id="voice-list-controls">
-                    <div class="voice-filter-row">
-                        <input type="text" id="voice-search-input" placeholder="Search voices..." class="voice-search-input">
-                        <select id="voice-filter-source" class="voice-filter-select">
-                            <option value="all">All Sources</option>
-                            <option value="local">Local Only</option>
-                            <option value="external">External (GitHub)</option>
-                        </select>
-                        <select id="voice-filter-gender" class="voice-filter-select">
-                            <option value="all">All Genders</option>
-                            <option value="Male">Male</option>
-                            <option value="Female">Female</option>
-                        </select>
-                        <select id="voice-filter-language" class="voice-filter-select">
-                            <option value="all">All Languages</option>
-                        </select>
-                        <button type="button" class="btn btn-secondary btn-sm" id="load-external-voices-btn">
-                            Load External Voices
-                        </button>
-                    </div>
-                    <div class="voice-list-stats" id="voice-list-stats">
-                        <span id="voice-count-display">0 voices</span>
-                    </div>
-                </div>
-                
-                <!-- Voice List Table -->
-                <div class="voice-list-table-container">
-                    <table class="voice-list-table" id="chatterbox-voice-table">
-                        <thead>
-                            <tr>
-                                <th class="sortable" data-sort="name">Name <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="gender">Gender <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="language">Language <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="duration">Duration <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="source">Source <span class="sort-icon"></span></th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="chatterbox-voice-list">
-                            <tr><td colspan="6" class="help-text">No saved voices yet. Add one above.</td></tr>
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </div>
@@ -453,6 +549,8 @@
                                     <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
                                     <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
                                     <option value="voxcpm_local">VoxCPM 1.5 · Local GPU</option>
+                                    <option value="qwen3_custom">Qwen3-TTS · Custom Voice</option>
+                                    <option value="qwen3_clone">Qwen3-TTS · Voice Clone</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -491,6 +589,7 @@
                             <button type="button" class="engine-tab-btn" data-engine-tab="chatterbox-local">Chatterbox Local</button>
                             <button type="button" class="engine-tab-btn" data-engine-tab="chatterbox-replicate">Chatterbox Cloud</button>
                             <button type="button" class="engine-tab-btn" data-engine-tab="voxcpm">VoxCPM 1.5</button>
+                            <button type="button" class="engine-tab-btn" data-engine-tab="qwen3">Qwen3-TTS</button>
                             <button type="button" class="engine-tab-btn" data-engine-tab="api-keys">API Keys</button>
                         </div>
 
@@ -640,12 +739,96 @@
                             <div class="form-group checkbox-group" style="margin-top:12px;">
                                 <label style="display:flex;align-items:center;gap:8px;">
                                     <input type="checkbox" id="voxcpm-local-normalize">
-                                    Normalize text (numbers, abbreviations)
+                                    Normalize numbers/abbreviations
                                 </label>
                                 <label style="display:flex;align-items:center;gap:8px;">
                                     <input type="checkbox" id="voxcpm-local-denoise">
-                                    Enable denoise (limits to 16kHz)
+                                    Denoise output
                                 </label>
+                            </div>
+                        </div>
+
+                        <!-- Qwen3 Panel -->
+                        <div class="engine-panel" id="engine-panel-qwen3">
+                            <p class="help-text" style="margin-top:0;">Qwen3-TTS CustomVoice with built-in speakers and instruction control.</p>
+                            <p class="help-text">For faster GPU inference, install Microsoft Visual C++ Build Tools and select “Desktop development with C++” to enable flash-attn.</p>
+                            <div class="settings-form-grid">
+                                <div class="form-group">
+                                    <label for="qwen3-custom-model-id">Model ID</label>
+                                    <input type="text" id="qwen3-custom-model-id" placeholder="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice">
+                                </div>
+                                <div class="form-group">
+                                    <label for="qwen3-custom-device">Device</label>
+                                    <input type="text" id="qwen3-custom-device" placeholder="auto">
+                                    <small>auto, cuda, cuda:1, cpu</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="qwen3-custom-dtype">DType</label>
+                                    <select id="qwen3-custom-dtype">
+                                        <option value="bfloat16">bfloat16 (recommended)</option>
+                                        <option value="float16">float16</option>
+                                        <option value="float32">float32</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="qwen3-custom-attn">Attention</label>
+                                    <select id="qwen3-custom-attn">
+                                        <option value="flash_attention_2">Flash Attention 2 (fast)</option>
+                                        <option value="eager">Eager (disable flash)</option>
+                                        <option value="auto">Auto</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="qwen3-custom-language">Default Language</label>
+                                    <input type="text" id="qwen3-custom-language" placeholder="Auto">
+                                </div>
+                                <div class="form-group">
+                                    <label for="qwen3-custom-instruct">Default Instruction</label>
+                                    <input type="text" id="qwen3-custom-instruct" placeholder="e.g., calm, warm narration">
+                                </div>
+                            </div>
+                            <div class="settings-subsection" style="margin-top:16px;">
+                                <h4>Voice Clone Defaults</h4>
+                                <div class="settings-form-grid">
+                                    <div class="form-group">
+                                        <label for="qwen3-clone-model-id">Model ID</label>
+                                        <input type="text" id="qwen3-clone-model-id" placeholder="Qwen/Qwen3-TTS-12Hz-1.7B-Base">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="qwen3-clone-device">Device</label>
+                                        <input type="text" id="qwen3-clone-device" placeholder="auto">
+                                        <small>auto, cuda, cuda:1, cpu</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="qwen3-clone-dtype">DType</label>
+                                        <select id="qwen3-clone-dtype">
+                                            <option value="bfloat16">bfloat16 (recommended)</option>
+                                            <option value="float16">float16</option>
+                                            <option value="float32">float32</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="qwen3-clone-attn">Attention</label>
+                                        <select id="qwen3-clone-attn">
+                                            <option value="flash_attention_2">Flash Attention 2 (fast)</option>
+                                            <option value="eager">Eager (disable flash)</option>
+                                            <option value="auto">Auto</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="qwen3-clone-language">Default Language</label>
+                                        <input type="text" id="qwen3-clone-language" placeholder="Auto">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="qwen3-clone-prompt">Default Prompt</label>
+                                        <input type="text" id="qwen3-clone-prompt" placeholder="data/voice_prompts/...">
+                                    </div>
+                                </div>
+                                <div class="form-group" style="margin-top:12px;">
+                                    <label for="qwen3-clone-prompt-text">Prompt Transcript</label>
+                                    <input type="text" id="qwen3-clone-prompt-text" placeholder="Transcript of reference audio (auto-generated if blank)">
+                                    <small>Leave blank to auto-transcribe the reference prompt.</small>
+                                </div>
                             </div>
                         </div>
 

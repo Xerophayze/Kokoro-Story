@@ -15,6 +15,7 @@ let currentPreviewItem = null;
 let samplesReady = false;
 let lastFailedSamples = [];
 let customVoices = [];
+let qwenVoicePreview = null;
 
 const generateSamplesBtnId = 'generate-voice-samples-btn';
 const regenerateSamplesBtnId = 'regenerate-voice-samples-btn';
@@ -34,7 +35,233 @@ document.addEventListener('DOMContentLoaded', () => {
     setupChatterboxVoiceSection();
     setupVoiceListControls();
     initEditVoiceModal();
+    setupVoicesAccordion();
+    setupQwenVoiceCreation();
 });
+
+function setupVoicesAccordion() {
+    const sections = document.querySelectorAll('.voices-section');
+    sections.forEach(section => {
+        const header = section.querySelector('.voices-section-header');
+        const toggle = section.querySelector('.voices-section-toggle');
+        if (!header || !toggle) return;
+        header.addEventListener('click', event => {
+            if (event.target.closest('button')) {
+                return;
+            }
+            section.classList.toggle('collapsed');
+            toggle.textContent = section.classList.contains('collapsed') ? '▶' : '▼';
+        });
+    });
+}
+
+function setupQwenVoiceCreation() {
+    const generateBtn = document.getElementById('qwen-voice-generate-btn');
+    const saveBtn = document.getElementById('qwen-voice-save-btn');
+    if (generateBtn) {
+        generateBtn.addEventListener('click', generateQwenVoicePreview);
+    }
+    if (saveBtn) {
+        saveBtn.addEventListener('click', saveQwenVoicePrompt);
+    }
+    loadQwenVoiceLanguages();
+}
+
+async function loadQwenVoiceLanguages() {
+    const select = document.getElementById('qwen-voice-language');
+    if (!select) return;
+    try {
+        const response = await fetch('/api/qwen3/metadata');
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load Qwen3 metadata');
+        }
+        const previous = select.value;
+        select.innerHTML = '<option value="Auto">Auto</option>';
+        (data.languages || []).forEach(language => {
+            const option = document.createElement('option');
+            option.value = language;
+            option.textContent = language;
+            select.appendChild(option);
+        });
+        if (previous) {
+            select.value = previous;
+        }
+    } catch (error) {
+        console.warn('Unable to load Qwen3 metadata', error);
+    }
+}
+
+async function generateQwenVoicePreview() {
+    const textInput = document.getElementById('qwen-voice-text');
+    const instructInput = document.getElementById('qwen-voice-instruct');
+    const languageSelect = document.getElementById('qwen-voice-language');
+    const previewAudio = document.getElementById('qwen-voice-preview');
+    const status = document.getElementById('qwen-voice-status');
+    const saveBtn = document.getElementById('qwen-voice-save-btn');
+    const generateBtn = document.getElementById('qwen-voice-generate-btn');
+    const text = textInput?.value.trim() || '';
+    const instruct = instructInput?.value.trim() || '';
+    const language = languageSelect?.value || 'Auto';
+
+    if (!text) {
+        showToast('Enter sample text for the preview.', 'warning');
+        return;
+    }
+
+    if (status) {
+        status.textContent = 'Generating preview...';
+    }
+    if (generateBtn) {
+        generateBtn.disabled = true;
+    }
+    if (saveBtn) {
+        saveBtn.disabled = true;
+    }
+    qwenVoicePreview = null;
+
+    try {
+        const response = await fetch('/api/qwen3/voice-design/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, instruct, language }),
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to enqueue preview');
+        }
+        const result = await pollQwenVoiceTask(data.job_id, status, 'Generating preview...');
+        qwenVoicePreview = {
+            audio_base64: result.audio_base64,
+            mime_type: result.mime_type || 'audio/wav',
+        };
+        if (previewAudio && result.audio_base64) {
+            previewAudio.src = `data:${qwenVoicePreview.mime_type};base64,${result.audio_base64}`;
+            previewAudio.load();
+        }
+        if (saveBtn) {
+            saveBtn.disabled = false;
+        }
+        if (status) {
+            status.textContent = 'Preview ready. Save when you like it.';
+        }
+    } catch (error) {
+        console.error('Failed to generate Qwen preview', error);
+        showToast(error.message || 'Preview failed', 'error');
+        if (status) {
+            status.textContent = 'Preview failed.';
+        }
+    } finally {
+        if (generateBtn) {
+            generateBtn.disabled = false;
+        }
+    }
+}
+
+async function saveQwenVoicePrompt() {
+    const nameInput = document.getElementById('qwen-voice-name');
+    const genderSelect = document.getElementById('qwen-voice-gender');
+    const languageSelect = document.getElementById('qwen-voice-language');
+    const descriptionInput = document.getElementById('qwen-voice-description');
+    const textInput = document.getElementById('qwen-voice-text');
+    const instructInput = document.getElementById('qwen-voice-instruct');
+    const status = document.getElementById('qwen-voice-status');
+    const saveBtn = document.getElementById('qwen-voice-save-btn');
+
+    const name = nameInput?.value.trim() || '';
+    const gender = genderSelect?.value || null;
+    const language = languageSelect?.value || 'Auto';
+    const description = descriptionInput?.value.trim() || '';
+    const text = textInput?.value.trim() || '';
+    const instruct = instructInput?.value.trim() || '';
+
+    if (!name) {
+        showToast('Add a name before saving the voice prompt.', 'warning');
+        return;
+    }
+    if (!text) {
+        showToast('Sample text is required to save this voice.', 'warning');
+        return;
+    }
+    if (!qwenVoicePreview?.audio_base64) {
+        showToast('Generate a preview before saving.', 'warning');
+        return;
+    }
+
+    if (status) {
+        status.textContent = 'Saving voice prompt...';
+    }
+    if (saveBtn) {
+        saveBtn.disabled = true;
+    }
+
+    try {
+        const response = await fetch('/api/qwen3/voice-design/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name,
+                gender,
+                language,
+                description,
+                text,
+                instruct,
+                audio_base64: qwenVoicePreview.audio_base64,
+            }),
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to enqueue save');
+        }
+        await pollQwenVoiceTask(data.job_id, status, 'Saving voice prompt...');
+        showToast('Qwen voice prompt saved.', 'success');
+        if (status) {
+            status.textContent = 'Saved to Voice Prompts.';
+        }
+        if (nameInput) nameInput.value = '';
+        if (descriptionInput) descriptionInput.value = '';
+        qwenVoicePreview = null;
+        if (saveBtn) {
+            saveBtn.disabled = true;
+        }
+        await loadChatterboxVoices();
+    } catch (error) {
+        console.error('Failed to save Qwen voice prompt', error);
+        showToast(error.message || 'Save failed', 'error');
+        if (status) {
+            status.textContent = 'Save failed.';
+        }
+        if (saveBtn) {
+            saveBtn.disabled = false;
+        }
+    }
+}
+
+async function pollQwenVoiceTask(taskId, statusEl, message) {
+    if (!taskId) {
+        throw new Error('Missing task id for queued request.');
+    }
+    const start = Date.now();
+    const timeoutMs = 10 * 60 * 1000;
+    while (Date.now() - start < timeoutMs) {
+        if (statusEl && message) {
+            statusEl.textContent = message;
+        }
+        const response = await fetch(`/api/qwen3/voice-design/tasks/${taskId}`);
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to fetch task status');
+        }
+        if (data.status === 'completed') {
+            return data.result || {};
+        }
+        if (data.status === 'failed') {
+            throw new Error(data.error || 'Queued task failed');
+        }
+        await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    throw new Error('Timed out waiting for the queued task.');
+}
 
 // Load available voices from API
 async function loadVoices() {

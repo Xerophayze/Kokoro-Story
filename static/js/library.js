@@ -138,6 +138,8 @@ function formatEngineName(engine) {
         'chatterbox_turbo_local': 'Chatterbox',
         'chatterbox_turbo_replicate': 'Chatterbox (Replicate)',
         'voxcpm_local': 'VoxCPM 1.5',
+        'qwen3_custom': 'Qwen3-TTS (Custom Voice)',
+        'qwen3_clone': 'Qwen3-TTS (Voice Clone)',
     };
     return engineMap[engine] || engine;
 }
@@ -438,16 +440,26 @@ function renderChunkReviewModal(data) {
 
     // Extract unique speakers and count their chunks
     const speakerMap = new Map();
+    const speakerInstructionMap = new Map();
     chunks.forEach(chunk => {
         const speaker = chunk.speaker || 'default';
         if (!speakerMap.has(speaker)) {
             speakerMap.set(speaker, { count: 0, voiceLabel: chunk.voice_label || chunk.voice || 'Default' });
         }
         speakerMap.get(speaker).count++;
+
+        if (!speakerInstructionMap.has(speaker)) {
+            const instruction = getChunkInstruction(chunk);
+            if (instruction) {
+                speakerInstructionMap.set(speaker, instruction);
+            }
+        }
     });
 
     // Build speaker section HTML - accordion layout
-    const speakerRows = Array.from(speakerMap.entries()).map(([speaker, info]) => `
+    const speakerRows = Array.from(speakerMap.entries()).map(([speaker, info]) => {
+        const speakerInstruction = speakerInstructionMap.get(speaker) || '';
+        return `
         <div class="bulk-speaker-card" data-speaker="${escapeHtml(speaker)}">
             <div class="bulk-speaker-summary" data-speaker="${escapeHtml(speaker)}">
                 <input type="checkbox" class="bulk-speaker-checkbox" data-speaker="${escapeHtml(speaker)}">
@@ -495,11 +507,28 @@ function renderChunkReviewModal(data) {
                                 Regenerate All
                             </button>
                         </div>
+                        <div class="bulk-qwen3-options" data-speaker="${escapeHtml(speaker)}" style="display: none;">
+                            <div class="bulk-regen-row" style="margin-top: 8px;">
+                                <div class="bulk-regen-field">
+                                    <label>Language</label>
+                                    <select class="bulk-qwen3-language" data-speaker="${escapeHtml(speaker)}">
+                                        <option value="Auto">Auto</option>
+                                    </select>
+                                </div>
+                                <div class="bulk-regen-field" style="flex: 2;">
+                                    <label>Custom Instruction (optional)</label>
+                                    <input type="text" class="bulk-qwen3-instruct" data-speaker="${escapeHtml(speaker)}" 
+                                           value="${escapeHtml(speakerInstruction)}"
+                                           placeholder="e.g., Speak with excitement" />
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     // Build chunk content - either grouped by chapter or flat list
     let chunkContent = '';
@@ -625,6 +654,8 @@ function renderLibraryChunkRow(jobId, chunk, engine, idx) {
     const text = chunk.text || '';
     const speaker = chunk.speaker || '';
     const voiceLabel = chunk.voice_label || chunk.voice || 'Default';
+    const currentVoiceLabel = voiceLabel ? `Current: ${voiceLabel}` : '-- Keep current --';
+    const instruction = getChunkInstruction(chunk);
     const fileUrl = chunk.file_url || '';
     const cacheToken = chunk.regenerated_at || chunk.relative_file || Date.now().toString();
     const audioUrl = fileUrl ? `${fileUrl}?t=${encodeURIComponent(cacheToken)}` : '';
@@ -691,17 +722,35 @@ function renderLibraryChunkRow(jobId, chunk, engine, idx) {
                         <select class="library-chunk-engine-select" data-chunk-id="${chunkId}">
                             <option value="">-- Same engine --</option>
                         </select>
-                        <select class="library-chunk-voice-select" data-chunk-id="${chunkId}">
-                            <option value="">-- Keep current --</option>
+                        <select class="library-chunk-voice-select" data-chunk-id="${chunkId}" data-current-voice-label="${escapeHtml(voiceLabel)}">
+                            <option value="">${escapeHtml(currentVoiceLabel)}</option>
                         </select>
                         <button class="btn btn-sm btn-warning library-chunk-regen" data-chunk-id="${chunkId}">
                             Regenerate
                         </button>
                     </div>
+                    <div class="chunk-qwen3-options" data-chunk-id="${chunkId}" style="display: none;">
+                        <div class="chunk-regen-row" style="margin-top: 8px;">
+                            <select class="chunk-qwen3-language" data-chunk-id="${chunkId}">
+                                <option value="Auto">Auto</option>
+                            </select>
+                            <input type="text" class="chunk-qwen3-instruct" data-chunk-id="${chunkId}" 
+                                   value="${escapeHtml(instruction)}"
+                                   placeholder="Custom instruction (optional)" style="flex: 2;" />
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     `;
+}
+
+function getChunkInstruction(chunk) {
+    if (!chunk || typeof chunk !== 'object') return '';
+    if (chunk.emotion) return chunk.emotion;
+    const extra = chunk.voice_assignment?.extra;
+    if (extra && extra.instruct) return extra.instruct;
+    return '';
 }
 
 function escapeHtml(str) {
@@ -996,10 +1045,14 @@ async function populateLibraryVoiceSelects(engine) {
     const body = document.getElementById('chunk-review-modal-body');
     if (!body) return;
 
+    const chunks = chunkReviewModalData?.chunks || [];
+
     const normalizedEngine = (engine || '').toLowerCase().replace(/[_-]/g, '');
     const isChatterbox = normalizedEngine.includes('chatterbox');
     const isVoxCPM = normalizedEngine.includes('voxcpm');
-    const usesVoicePrompts = isChatterbox || isVoxCPM;
+    const isQwen = normalizedEngine.includes('qwen3');
+    const isQwenClone = normalizedEngine.includes('qwen3') && normalizedEngine.includes('clone');
+    const usesVoicePrompts = isChatterbox || isVoxCPM || isQwenClone;
 
     let voices = [];
     try {
@@ -1014,6 +1067,7 @@ async function populateLibraryVoiceSelects(engine) {
                     duration: p.duration_seconds,
                     gender: p.gender,
                     language: p.language,
+                    transcript: p.transcript,
                     isPrompt: true
                 }));
                 
@@ -1026,6 +1080,17 @@ async function populateLibraryVoiceSelects(engine) {
                 if (libraryVoiceFilters.language && libraryVoiceFilters.language !== 'all') {
                     voices = voices.filter(v => v.language === libraryVoiceFilters.language);
                 }
+            }
+        } else if (isQwen) {
+            // Qwen3 uses /api/qwen3/metadata for speakers
+            const response = await fetch('/api/qwen3/metadata');
+            const data = await response.json();
+            if (data.success && data.speakers) {
+                voices = data.speakers.map(speaker => ({
+                    id: speaker,
+                    name: speaker,
+                    isQwen: true
+                }));
             }
         } else {
             // Kokoro and others use /api/voices - returns nested structure by language
@@ -1082,8 +1147,11 @@ async function populateLibraryVoiceSelects(engine) {
         return 0;
     }
 
-    async function populateChunkVoiceSelect(select, chunkId, engineName, filters = null) {
-        const usesPrompts = engineName.includes('chatterbox') || engineName.includes('voxcpm');
+    async function populateChunkVoiceSelect(select, chunkId, engineName, filters = null, currentLabel = '') {
+        const usesPrompts = engineName.includes('chatterbox')
+            || engineName.includes('voxcpm')
+            || (engineName.includes('qwen3') && engineName.includes('clone'));
+        const isQwenEngine = engineName.includes('qwen3');
         const minDuration = getMinDuration(engineName);
         const activeFilters = filters || libraryVoiceFilters;
         let chunkVoices = [];
@@ -1100,6 +1168,16 @@ async function populateLibraryVoiceSelects(engine) {
                         gender: p.gender,
                         language: p.language,
                         isPrompt: true
+                    }));
+                }
+            } else if (isQwenEngine) {
+                const response = await fetch('/api/qwen3/metadata');
+                const data = await response.json();
+                if (data.success && data.speakers) {
+                    chunkVoices = data.speakers.map(speaker => ({
+                        id: speaker,
+                        name: speaker,
+                        isQwen: true
                     }));
                 }
             } else {
@@ -1144,7 +1222,8 @@ async function populateLibraryVoiceSelects(engine) {
             }
         }
         
-        select.innerHTML = '<option value="">-- Keep current --</option>';
+        const defaultLabel = currentLabel ? `Current: ${currentLabel}` : '-- Keep current --';
+        select.innerHTML = `<option value="">${defaultLabel}</option>`;
         chunkVoices.forEach(v => {
             const opt = document.createElement('option');
             opt.value = v.id;
@@ -1179,6 +1258,7 @@ async function populateLibraryVoiceSelects(engine) {
     // Helper to populate bulk speaker voice select based on engine
     async function populateBulkVoiceSelect(select, speaker, engineName, filters = null) {
         const usesPrompts = engineName.includes('chatterbox') || engineName.includes('voxcpm');
+        const isQwenEngine = engineName.includes('qwen3');
         const minDuration = getMinDuration(engineName);
         const activeFilters = filters || libraryVoiceFilters;
         let bulkVoices = [];
@@ -1195,6 +1275,16 @@ async function populateLibraryVoiceSelects(engine) {
                         gender: p.gender,
                         language: p.language,
                         isPrompt: true
+                    }));
+                }
+            } else if (isQwenEngine) {
+                const response = await fetch('/api/qwen3/metadata');
+                const data = await response.json();
+                if (data.success && data.speakers) {
+                    bulkVoices = data.speakers.map(speaker => ({
+                        id: speaker,
+                        name: speaker,
+                        isQwen: true
                     }));
                 }
             } else {
@@ -1268,76 +1358,75 @@ async function populateLibraryVoiceSelects(engine) {
         });
     }
 
-    // Get minimum duration for the current engine
-    const currentMinDuration = getMinDuration(engine);
-
-    body.querySelectorAll('.library-chunk-voice-select').forEach(select => {
-        const chunkId = select.getAttribute('data-chunk-id');
-        select.innerHTML = '<option value="">-- Keep current --</option>';
-        voices.forEach(v => {
-            const opt = document.createElement('option');
-            opt.value = v.id;
-            const durationLabel = v.duration != null ? ` · ${v.duration.toFixed(1)}s` : '';
-            
-            // Build label with gender and language for prompt voices
-            let displayName = v.name;
-            if (v.isPrompt && (v.gender || v.language)) {
-                const gender = v.gender ? ` [${v.gender.charAt(0).toUpperCase()}]` : '';
-                const lang = v.language ? ` ${getLibraryLanguageDisplayName(v.language)}` : '';
-                displayName = `${v.name} ·${gender}${lang}`;
-            }
-            
-            opt.textContent = `${displayName}${durationLabel}`;
-            opt.dataset.gender = v.gender || '';
-            opt.dataset.language = v.language || '';
-            
-            // Disable if duration is too short for this engine
-            if (currentMinDuration > 0 && v.duration != null && v.duration < currentMinDuration) {
-                opt.disabled = true;
-                opt.style.color = '#ff6b6b';
-                opt.textContent = `${displayName}${durationLabel} (too short)`;
-            }
-            
-            select.appendChild(opt);
-        });
-
-        select.addEventListener('change', () => {
-            const value = select.value;
-            if (value) {
-                const voiceData = libraryVoiceMap.get(value);
-                if (usesVoicePrompts) {
-                    // For Chatterbox/VoxCPM, store as audio_prompt_path (what the engine expects)
-                    libraryChunkVoiceOverrides[chunkId] = { audio_prompt_path: value };
-                } else {
-                    // For Kokoro, include both voice name and lang_code
-                    libraryChunkVoiceOverrides[chunkId] = { 
-                        voice: value,
-                        lang_code: voiceData?.langCode || 'a'
-                    };
-                }
-            } else {
-                delete libraryChunkVoiceOverrides[chunkId];
-            }
-        });
-    });
+    const chunkById = new Map(chunks.map(chunk => [chunk.id, chunk]));
 
     // Populate chunk engine selects
     body.querySelectorAll('.library-chunk-engine-select').forEach(select => {
         const chunkId = select.getAttribute('data-chunk-id');
+        const chunk = chunkById.get(chunkId);
+        const currentEngine = chunk?.engine || engine;
+        const currentEngineLabel = currentEngine ? `Current: ${formatEngineName(currentEngine)}` : '-- Same engine --';
+        const normalizedCurrentEngine = (currentEngine || '').toLowerCase();
         select.innerHTML = `
-            <option value="">-- Same engine --</option>
+            <option value="">${currentEngineLabel}</option>
             <option value="kokoro">Kokoro</option>
             <option value="chatterbox_turbo_local">Chatterbox</option>
             <option value="chatterbox_turbo_api">Chatterbox API</option>
             <option value="voxcpm_local">VoxCPM 1.5</option>
+            <option value="qwen3_custom">Qwen3-TTS</option>
+            <option value="qwen3_clone">Qwen3-TTS · Voice Clone</option>
         `;
-        
-        // When engine changes, repopulate the voice dropdown for this chunk
-        select.addEventListener('change', () => {
-            const selectedEngine = select.value || engine;
-            const voiceSelect = select.closest('.chunk-regen-row')?.querySelector('.library-chunk-voice-select');
+        if (normalizedCurrentEngine) {
+            Array.from(select.options).forEach(option => {
+                if (option.value && normalizedCurrentEngine.includes(option.value.replace(/[_-]/g, ''))) {
+                    option.textContent = `Current: ${option.textContent}`;
+                }
+            });
+        }
+
+        const regenSection = select.closest('.chunk-regen-section');
+        const voiceSelect = regenSection?.querySelector('.library-chunk-voice-select');
+        const qwen3Options = regenSection?.querySelector('.chunk-qwen3-options');
+        if (voiceSelect) {
+            const currentVoiceLabel = voiceSelect.dataset.currentVoiceLabel || '';
+            populateChunkVoiceSelect(voiceSelect, chunkId, currentEngine, null, currentVoiceLabel);
+        }
+        const normalizedEngineValue = (currentEngine || '').toLowerCase();
+        const isQwen = normalizedEngineValue.includes('qwen3') && !normalizedEngineValue.includes('clone');
+        if (qwen3Options) {
+            qwen3Options.style.display = isQwen ? 'block' : 'none';
+            if (isQwen) {
+                const langSelect = qwen3Options.querySelector('.chunk-qwen3-language');
+                if (langSelect && langSelect.options.length <= 1) {
+                    populateQwen3LanguageSelect(langSelect);
+                }
+            }
+        }
+
+        // When engine changes, repopulate the voice dropdown for this chunk and show/hide Qwen3 options
+        select.addEventListener('change', async () => {
+            const selectedEngine = select.value || currentEngine || engine;
+            const regenSection = select.closest('.chunk-regen-section');
+            const voiceSelect = regenSection?.querySelector('.library-chunk-voice-select');
+            const qwen3Options = regenSection?.querySelector('.chunk-qwen3-options');
+            
             if (voiceSelect) {
-                populateChunkVoiceSelect(voiceSelect, chunkId, selectedEngine);
+                const currentVoiceLabel = voiceSelect.dataset.currentVoiceLabel || '';
+                await populateChunkVoiceSelect(voiceSelect, chunkId, selectedEngine, null, currentVoiceLabel);
+            }
+            
+            // Show/hide Qwen3 options based on engine
+            const isQwen = selectedEngine.toLowerCase().includes('qwen3')
+                && !selectedEngine.toLowerCase().includes('clone');
+            if (qwen3Options) {
+                qwen3Options.style.display = isQwen ? 'block' : 'none';
+                // Populate language dropdown if Qwen3 selected
+                if (isQwen) {
+                    const langSelect = qwen3Options.querySelector('.chunk-qwen3-language');
+                    if (langSelect && langSelect.options.length <= 1) {
+                        await populateQwen3LanguageSelect(langSelect);
+                    }
+                }
             }
         });
     });
@@ -1351,14 +1440,33 @@ async function populateLibraryVoiceSelects(engine) {
             <option value="chatterbox_turbo_local">Chatterbox</option>
             <option value="chatterbox_turbo_api">Chatterbox API</option>
             <option value="voxcpm_local">VoxCPM 1.5</option>
+            <option value="qwen3_custom">Qwen3-TTS</option>
+            <option value="qwen3_clone">Qwen3-TTS · Voice Clone</option>
         `;
         
-        // When engine changes, repopulate the voice dropdown for this speaker
+        // When engine changes, repopulate the voice dropdown for this speaker and show/hide Qwen3 options
         select.addEventListener('change', async () => {
             const selectedEngine = select.value || engine;
-            const voiceSelect = select.closest('.bulk-regen-row')?.querySelector('.bulk-speaker-voice-select');
+            const regenSection = select.closest('.bulk-regen-section');
+            const voiceSelect = regenSection?.querySelector('.bulk-speaker-voice-select');
+            const qwen3Options = regenSection?.querySelector('.bulk-qwen3-options');
+            
             if (voiceSelect) {
                 await populateBulkVoiceSelect(voiceSelect, speaker, selectedEngine);
+            }
+            
+            // Show/hide Qwen3 options based on engine
+            const isQwen = selectedEngine.toLowerCase().includes('qwen3')
+                && !selectedEngine.toLowerCase().includes('clone');
+            if (qwen3Options) {
+                qwen3Options.style.display = isQwen ? 'block' : 'none';
+                // Populate language dropdown if Qwen3 selected
+                if (isQwen) {
+                    const langSelect = qwen3Options.querySelector('.bulk-qwen3-language');
+                    if (langSelect && langSelect.options.length <= 1) {
+                        await populateQwen3LanguageSelect(langSelect);
+                    }
+                }
             }
         });
     });
@@ -1388,6 +1496,24 @@ async function populateLibraryVoiceSelects(engine) {
 
     // Store engine info for bulk regen (usesVoicePrompts covers both Chatterbox and VoxCPM)
     body.dataset.usesVoicePrompts = usesVoicePrompts ? 'true' : 'false';
+}
+
+// Helper to populate Qwen3 language dropdown
+async function populateQwen3LanguageSelect(select) {
+    try {
+        const response = await fetch('/api/qwen3/metadata');
+        const data = await response.json();
+        if (data.success && data.languages) {
+            data.languages.forEach(lang => {
+                const opt = document.createElement('option');
+                opt.value = lang;
+                opt.textContent = lang;
+                select.appendChild(opt);
+            });
+        }
+    } catch (err) {
+        console.error('Failed to load Qwen3 languages:', err);
+    }
 }
 
 function updateBulkRegenButtonState(checkbox) {
@@ -1425,13 +1551,42 @@ async function triggerBulkSpeakerRegen(jobId, speaker, chunks, engine, button) {
     const normalizedEngine = (engine || '').toLowerCase().replace(/[_-]/g, '');
     const isChatterbox = normalizedEngine.includes('chatterbox');
     const isVoxCPM = normalizedEngine.includes('voxcpm');
-    const usesVoicePrompts = isChatterbox || isVoxCPM;
+    const isQwenEngine = normalizedEngine.includes('qwen3');
+    const isQwenClone = normalizedEngine.includes('qwen3') && normalizedEngine.includes('clone');
+    const usesVoicePrompts = isChatterbox || isVoxCPM || isQwenClone;
 
-    // Build voice payload with lang_code for Kokoro, audio_prompt_path for Chatterbox/VoxCPM
+    // Build voice payload based on engine type
     const voiceData = libraryVoiceMap.get(voiceValue);
-    const voicePayload = usesVoicePrompts 
-        ? { audio_prompt_path: voiceValue }
-        : { voice: voiceValue, lang_code: voiceData?.langCode || 'a' };
+    let voicePayload;
+    if (usesVoicePrompts) {
+        const promptEntry = libraryVoiceMap.get(voiceValue);
+        voicePayload = {
+            audio_prompt_path: voiceValue,
+            ...(promptEntry?.transcript ? { extra: { prompt_text: promptEntry.transcript } } : {})
+        };
+    } else if (isQwenEngine) {
+        // Get Qwen3 language and instruction from the bulk options
+        const qwen3Options = card?.querySelector('.bulk-qwen3-options');
+        const langSelect = qwen3Options?.querySelector('.bulk-qwen3-language');
+        const instructInput = qwen3Options?.querySelector('.bulk-qwen3-instruct');
+        const language = langSelect?.value || 'Auto';
+        let instruct = instructInput?.value?.trim() || '';
+        if (!instruct) {
+            const originalInstruction = speakerChunks
+                .map(chunk => getChunkInstruction(chunk))
+                .find(Boolean) || '';
+            instruct = originalInstruction;
+        }
+        voicePayload = { 
+            voice: voiceValue, 
+            extra: { 
+                language: language,
+                ...(instruct && { instruct: instruct })
+            } 
+        };
+    } else {
+        voicePayload = { voice: voiceValue, lang_code: voiceData?.langCode || 'a' };
+    }
 
     button.disabled = true;
     button.textContent = `Regenerating ${speakerChunks.length}...`;
@@ -1502,11 +1657,58 @@ async function triggerLibraryChunkRegen(jobId, chunkId, button) {
     button.disabled = true;
     button.textContent = 'Queuing...';
 
-    const voicePayload = libraryChunkVoiceOverrides[chunkId] || {};
-    
     // Get engine override from per-chunk dropdown
     const chunkEngineSelect = card?.querySelector('.library-chunk-engine-select');
     const engineOverride = chunkEngineSelect?.value || '';
+    
+    // Get voice selection from per-chunk dropdown
+    const voiceSelect = card?.querySelector('.library-chunk-voice-select');
+    const voiceValue = voiceSelect?.value || '';
+    
+    // Build voice payload based on engine type
+    let voicePayload = libraryChunkVoiceOverrides[chunkId] || {};
+    const originalChunk = (chunkReviewModalData?.chunks || []).find(chunk => chunk.id === chunkId);
+    const normalizedEngine = (engineOverride || originalChunk?.engine || chunkReviewModalData?.engine || '')
+        .toLowerCase()
+        .replace(/[_-]/g, '');
+    const isChatterbox = normalizedEngine.includes('chatterbox');
+    const isVoxCPM = normalizedEngine.includes('voxcpm');
+    const isQwenEngine = normalizedEngine.includes('qwen3');
+    const isQwenClone = normalizedEngine.includes('qwen3') && normalizedEngine.includes('clone');
+    const usesVoicePrompts = isChatterbox || isVoxCPM || isQwenClone;
+    const voiceData = libraryVoiceMap.get(voiceValue);
+
+    if (usesVoicePrompts) {
+        if (voiceValue) {
+            const promptEntry = libraryVoiceMap.get(voiceValue);
+            voicePayload = {
+                audio_prompt_path: voiceValue,
+                ...(promptEntry?.transcript ? { extra: { prompt_text: promptEntry.transcript } } : {})
+            };
+        }
+    } else if (isQwenEngine) {
+        // Get Qwen3 language and instruction from the chunk options
+        const qwen3Options = card?.querySelector('.chunk-qwen3-options');
+        const langSelect = qwen3Options?.querySelector('.chunk-qwen3-language');
+        const instructInput = qwen3Options?.querySelector('.chunk-qwen3-instruct');
+        const language = langSelect?.value || 'Auto';
+        let instruct = instructInput?.value?.trim() || '';
+        if (!instruct) {
+            instruct = getChunkInstruction(originalChunk);
+        }
+        const existingExtra = voicePayload.extra || {};
+        voicePayload = {
+            ...(voiceValue ? { voice: voiceValue } : {}),
+            ...voicePayload,
+            extra: {
+                ...existingExtra,
+                language: language,
+                ...(instruct && { instruct: instruct })
+            }
+        };
+    } else if (voiceValue) {
+        voicePayload = { voice: voiceValue, lang_code: voiceData?.langCode || 'a' };
+    }
 
     try {
         // First restore the job to review mode if not already

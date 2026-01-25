@@ -22,7 +22,7 @@ google-genai>=1.0.0
 
 # Chatterbox Turbo local runtime dependencies
 s3tokenizer
-transformers==4.46.3
+transformers==4.57.3
 diffusers==0.29.0
 resemble-perth==1.0.1
 conformer==0.3.2
@@ -38,6 +38,10 @@ omegaconf>=2.3.0
 # VoxCPM 1.5 local runtime
 voxcpm
 funasr
+
+# Qwen3-TTS local runtime
+qwen-tts
+huggingface-hub
 
 # Extra language-specific dependencies
 pyopenjtalk

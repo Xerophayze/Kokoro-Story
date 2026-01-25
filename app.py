@@ -4,6 +4,7 @@ TTS-Story - Web-based TTS application
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 import base64
+import hashlib
 import copy
 import inspect
 import io
@@ -51,6 +52,8 @@ from src.engines.chatterbox_turbo_local_engine import (
     CHATTERBOX_TURBO_AVAILABLE,
 )
 from src.engines.voxcpm_local_engine import VOXCPM_AVAILABLE
+from src.engines.qwen3_custom_voice_engine import QWEN3_AVAILABLE
+from src.engines.qwen3_voice_clone_engine import QWEN3_AVAILABLE as QWEN3_CLONE_AVAILABLE
 from src.engines.chatterbox_turbo_replicate_engine import (
     DEFAULT_CHATTERBOX_TURBO_REPLICATE_MODEL,
     DEFAULT_CHATTERBOX_TURBO_REPLICATE_VOICE,
@@ -129,6 +132,20 @@ DEFAULT_CONFIG = {
     "voxcpm_local_inference_timesteps": 32,
     "voxcpm_local_normalize": True,  # Enable text normalization for numbers/abbreviations
     "voxcpm_local_denoise": False,
+    "qwen3_custom_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+    "qwen3_custom_device": "auto",
+    "qwen3_custom_dtype": "bfloat16",
+    "qwen3_custom_attn_implementation": "flash_attention_2",
+    "qwen3_custom_default_language": "Auto",
+    "qwen3_custom_default_instruct": "",
+    "qwen3_clone_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    "qwen3_clone_device": "auto",
+    "qwen3_clone_dtype": "bfloat16",
+    "qwen3_clone_attn_implementation": "flash_attention_2",
+    "qwen3_clone_default_language": "Auto",
+    "qwen3_clone_default_prompt": "",
+    "qwen3_clone_default_prompt_text": "",
+    "qwen3_voice_design_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
     "parallel_chunks": 3,
     "cleanup_vram_after_job": False,
 }
@@ -155,6 +172,23 @@ VOXCPM_LOCAL_SETTING_KEYS = {
     "voxcpm_local_normalize",
     "voxcpm_local_denoise",
 }
+QWEN3_CUSTOM_SETTING_KEYS = {
+    "qwen3_custom_model_id",
+    "qwen3_custom_device",
+    "qwen3_custom_dtype",
+    "qwen3_custom_attn_implementation",
+    "qwen3_custom_default_language",
+    "qwen3_custom_default_instruct",
+}
+QWEN3_CLONE_SETTING_KEYS = {
+    "qwen3_clone_model_id",
+    "qwen3_clone_device",
+    "qwen3_clone_dtype",
+    "qwen3_clone_attn_implementation",
+    "qwen3_clone_default_language",
+    "qwen3_clone_default_prompt",
+    "qwen3_clone_default_prompt_text",
+}
 CHATTERBOX_TURBO_LOCAL_OPTION_ALIASES = {
     "default_prompt": "chatterbox_turbo_local_default_prompt",
     "prompt": "chatterbox_turbo_local_default_prompt",
@@ -178,6 +212,25 @@ VOXCPM_LOCAL_OPTION_ALIASES = {
     "inference_timesteps": "voxcpm_local_inference_timesteps",
     "normalize": "voxcpm_local_normalize",
     "denoise": "voxcpm_local_denoise",
+}
+QWEN3_CUSTOM_OPTION_ALIASES = {
+    "model": "qwen3_custom_model_id",
+    "model_id": "qwen3_custom_model_id",
+    "device": "qwen3_custom_device",
+    "dtype": "qwen3_custom_dtype",
+    "attn_implementation": "qwen3_custom_attn_implementation",
+    "default_language": "qwen3_custom_default_language",
+    "default_instruct": "qwen3_custom_default_instruct",
+}
+QWEN3_CLONE_OPTION_ALIASES = {
+    "model": "qwen3_clone_model_id",
+    "model_id": "qwen3_clone_model_id",
+    "device": "qwen3_clone_device",
+    "dtype": "qwen3_clone_dtype",
+    "attn_implementation": "qwen3_clone_attn_implementation",
+    "default_language": "qwen3_clone_default_language",
+    "default_prompt": "qwen3_clone_default_prompt",
+    "prompt_text": "qwen3_clone_default_prompt_text",
 }
 CHATTERBOX_TURBO_LOCAL_BOOLEAN_SETTINGS = {
     "chatterbox_turbo_local_norm_loudness",
@@ -296,20 +349,19 @@ def _coerce_float(
         parsed = fallback
     if parsed < minimum:
         parsed = minimum
-    if parsed > maximum:
-        parsed = maximum
-    return parsed
 
 
-def _normalize_engine_options(engine_name: str, options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    if not options:
-        return {}
+def _normalize_engine_options(engine_name: str, options: Dict[str, Any]) -> Dict[str, Any]:
     if engine_name == "chatterbox_turbo_local":
         return _normalize_chatterbox_turbo_local_options(options)
     if engine_name == "chatterbox_turbo_replicate":
         return _normalize_chatterbox_turbo_replicate_options(options)
     if engine_name == "voxcpm_local":
         return _normalize_voxcpm_local_options(options)
+    if engine_name == "qwen3_custom":
+        return _normalize_qwen3_custom_options(options)
+    if engine_name == "qwen3_clone":
+        return _normalize_qwen3_clone_options(options)
     return {}
 
 
@@ -338,6 +390,43 @@ def _normalize_chatterbox_turbo_local_options(options: Dict[str, Any]) -> Dict[s
             minimum, maximum, fallback = CHATTERBOX_TURBO_LOCAL_INT_SETTINGS[key]
             result[key] = _coerce_int(value, minimum=minimum, maximum=maximum, fallback=fallback)
             continue
+        result[key] = (value or "").strip() if isinstance(value, str) else (value or "")
+    return result
+
+
+def _normalize_qwen3_clone_options(options: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for raw_key, value in options.items():
+        if raw_key is None:
+            continue
+        key = str(raw_key).strip().lower()
+        canonical = QWEN3_CLONE_OPTION_ALIASES.get(key)
+        if not canonical and key in QWEN3_CLONE_SETTING_KEYS:
+            canonical = key
+        if canonical and canonical in QWEN3_CLONE_SETTING_KEYS:
+            normalized[canonical] = value
+
+    result: Dict[str, Any] = {}
+    for key in QWEN3_CLONE_SETTING_KEYS:
+        if key in normalized:
+            result[key] = normalized[key]
+    return result
+
+
+def _normalize_qwen3_custom_options(options: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for raw_key, value in options.items():
+        if raw_key is None:
+            continue
+        key = str(raw_key).strip().lower()
+        canonical = QWEN3_CUSTOM_OPTION_ALIASES.get(key)
+        if not canonical and key in QWEN3_CUSTOM_SETTING_KEYS:
+            canonical = key
+        if canonical and canonical in QWEN3_CUSTOM_SETTING_KEYS:
+            normalized[canonical] = value
+
+    result: Dict[str, Any] = {}
+    for key, value in normalized.items():
         result[key] = (value or "").strip() if isinstance(value, str) else (value or "")
     return result
 
@@ -437,6 +526,8 @@ gpu_inference_lock = threading.Lock()
 # Use max_workers=1 to prevent parallel GPU inference which causes contention
 # and "badcase" retry loops with VoxCPM and other GPU-based engines
 chunk_regen_executor = ThreadPoolExecutor(max_workers=1)
+qwen3_voice_design_model = None
+qwen3_voice_design_signature = None
 library_cache = {
     "items": None,
     "timestamp": 0.0,
@@ -631,6 +722,7 @@ def _perform_chunk_regeneration(
         if chunk:
             chunk["text"] = chunk_text
             chunk["regenerated_at"] = datetime.now().isoformat()
+            chunk["engine"] = engine_name
             if effective_assignment:
                 chunk["voice_assignment"] = copy.deepcopy(effective_assignment)
                 voice_label = _voice_label_from_assignment(effective_assignment)
@@ -737,6 +829,102 @@ def _normalize_engine_name(name: Optional[str]) -> str:
     return value or DEFAULT_CONFIG["tts_engine"]
 
 
+def _resolve_qwen_device(device: str) -> str:
+    import torch
+    candidate = (device or "auto").strip().lower()
+    if candidate == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if candidate.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError("CUDA device requested but no GPU is available.")
+    return candidate
+
+
+def _resolve_qwen_dtype(dtype_value: str):
+    import torch
+    normalized = (dtype_value or "").strip().lower()
+    if normalized in {"bf16", "bfloat16"}:
+        return torch.bfloat16
+    if normalized in {"fp16", "float16"}:
+        return torch.float16
+    return torch.float32
+
+
+def _resolve_qwen_attn(attn_value: Optional[str]) -> Optional[str]:
+    normalized = (attn_value or "").strip().lower().replace("-", "_")
+    if normalized in {"", "auto"}:
+        return None
+    if normalized in {"flash_attention_2", "flash_attention2", "flash"}:
+        try:
+            import flash_attn  # type: ignore  # noqa: F401
+        except Exception:
+            logger.warning("flash-attn not installed; falling back to eager attention for Qwen3")
+            return "eager"
+        return "flash_attention_2"
+    return normalized
+
+
+def _ensure_qwen3_model(model_id: str) -> Path:
+    from huggingface_hub import snapshot_download
+    local_model_dir = Path(__file__).parent / "models" / "qwen3"
+    local_model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = local_model_dir / model_id.replace("/", "_")
+    if not model_path.exists() or not any(model_path.iterdir()):
+        logger.info("Downloading Qwen3 model to %s (this may take a few minutes)...", model_path)
+        try:
+            snapshot_download(
+                repo_id=model_id,
+                local_dir=str(model_path),
+                local_dir_use_symlinks=False,
+            )
+        except Exception as exc:
+            logger.error("Failed to download Qwen3 model %s: %s", model_id, exc, exc_info=True)
+            raise RuntimeError(
+                "Qwen3 VoiceDesign model files are missing. Download the model while online "
+                "(repo: %s) into %s, then retry." % (model_id, model_path)
+            ) from exc
+    return model_path
+
+
+def _qwen3_voice_design_signature(config: Dict[str, Any]) -> str:
+    model_id = (config.get("qwen3_voice_design_model_id") or "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign").strip()
+    device = (config.get("qwen3_custom_device") or "auto").strip()
+    dtype = (config.get("qwen3_custom_dtype") or "bfloat16").strip()
+    attn = (config.get("qwen3_custom_attn_implementation") or "flash_attention_2").strip()
+    return f"{model_id}|{device}|{dtype}|{attn}"
+
+
+def _get_qwen3_voice_design_model(config: Dict[str, Any]):
+    if not QWEN3_AVAILABLE:
+        raise ImportError("qwen-tts is not installed. Run setup to enable Qwen3-TTS local mode.")
+    global qwen3_voice_design_model, qwen3_voice_design_signature
+    config = config or {}
+    signature = _qwen3_voice_design_signature(config)
+    with tts_engine_lock:
+        if qwen3_voice_design_model is not None and qwen3_voice_design_signature == signature:
+            return qwen3_voice_design_model
+        from qwen_tts import Qwen3TTSModel  # type: ignore
+        model_id = (config.get("qwen3_voice_design_model_id") or "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign").strip()
+        device = _resolve_qwen_device(config.get("qwen3_custom_device") or "auto")
+        dtype = _resolve_qwen_dtype(config.get("qwen3_custom_dtype") or "bfloat16")
+        attn = _resolve_qwen_attn(config.get("qwen3_custom_attn_implementation") or "flash_attention_2")
+        model_path = _ensure_qwen3_model(model_id)
+        logger.info(
+            "Loading Qwen3 VoiceDesign model=%s device=%s dtype=%s attn=%s",
+            model_id,
+            device,
+            dtype,
+            attn or "auto",
+        )
+        qwen3_voice_design_model = Qwen3TTSModel.from_pretrained(
+            str(model_path),
+            device_map=device,
+            dtype=dtype,
+            attn_implementation=attn or None,
+        )
+        qwen3_voice_design_signature = signature
+        return qwen3_voice_design_model
+
+
 def _engine_signature(engine_name: str, config: Dict) -> str:
     """Generate a signature capturing settings that require a fresh engine."""
     config = config or {}
@@ -774,7 +962,27 @@ def _engine_signature(engine_name: str, config: Dict) -> str:
             str(config.get("voxcpm_local_inference_timesteps")),
             str(bool(config.get("voxcpm_local_normalize", False))),
             str(bool(config.get("voxcpm_local_denoise", False))),
-            (config.get("voxcpm_local_device") or "").strip(),
+        )
+        return f"{engine_name}::{'|'.join(parts)}"
+    if engine_name == "qwen3_custom":
+        parts = (
+            (config.get("qwen3_custom_model_id") or "").strip(),
+            (config.get("qwen3_custom_device") or "").strip(),
+            (config.get("qwen3_custom_dtype") or "").strip(),
+            (config.get("qwen3_custom_attn_implementation") or "").strip(),
+            (config.get("qwen3_custom_default_language") or "").strip(),
+            (config.get("qwen3_custom_default_instruct") or "").strip(),
+        )
+        return f"{engine_name}::{'|'.join(parts)}"
+    if engine_name == "qwen3_clone":
+        parts = (
+            (config.get("qwen3_clone_model_id") or "").strip(),
+            (config.get("qwen3_clone_device") or "").strip(),
+            (config.get("qwen3_clone_dtype") or "").strip(),
+            (config.get("qwen3_clone_attn_implementation") or "").strip(),
+            (config.get("qwen3_clone_default_language") or "").strip(),
+            (config.get("qwen3_clone_default_prompt") or "").strip(),
+            (config.get("qwen3_clone_default_prompt_text") or "").strip(),
         )
         return f"{engine_name}::{'|'.join(parts)}"
     if engine_name == "kokoro_replicate":
@@ -851,6 +1059,35 @@ def _create_engine(engine_name: str, config: Dict) -> TtsEngineBase:
             inference_timesteps=int(config.get("voxcpm_local_inference_timesteps") or 32),
             normalize=bool(config.get("voxcpm_local_normalize", False)),
             denoise=bool(config.get("voxcpm_local_denoise", False)),
+        )
+
+    if engine_name == "qwen3_custom":
+        if not QWEN3_AVAILABLE:
+            raise ImportError("qwen-tts is not installed. Run setup to enable Qwen3-TTS local mode.")
+        device = (config.get("qwen3_custom_device") or "auto").strip()
+        return get_engine(
+            "qwen3_custom",
+            device=device or "auto",
+            model_id=(config.get("qwen3_custom_model_id") or "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice").strip(),
+            dtype=(config.get("qwen3_custom_dtype") or "bfloat16").strip(),
+            attn_implementation=(config.get("qwen3_custom_attn_implementation") or "flash_attention_2").strip(),
+            default_language=(config.get("qwen3_custom_default_language") or "Auto").strip() or "Auto",
+            default_instruct=(config.get("qwen3_custom_default_instruct") or "").strip() or None,
+        )
+
+    if engine_name == "qwen3_clone":
+        if not QWEN3_CLONE_AVAILABLE:
+            raise ImportError("qwen-tts is not installed. Run setup to enable Qwen3-TTS local mode.")
+        device = (config.get("qwen3_clone_device") or "auto").strip()
+        return get_engine(
+            "qwen3_clone",
+            device=device or "auto",
+            model_id=(config.get("qwen3_clone_model_id") or "Qwen/Qwen3-TTS-12Hz-1.7B-Base").strip(),
+            dtype=(config.get("qwen3_clone_dtype") or "bfloat16").strip(),
+            attn_implementation=(config.get("qwen3_clone_attn_implementation") or "flash_attention_2").strip(),
+            default_language=(config.get("qwen3_clone_default_language") or "Auto").strip() or "Auto",
+            default_prompt=(config.get("qwen3_clone_default_prompt") or "").strip() or None,
+            default_prompt_text=(config.get("qwen3_clone_default_prompt_text") or "").strip() or None,
         )
 
     if engine_name == "kokoro_replicate":
@@ -1267,7 +1504,15 @@ def process_job_worker():
             
             # Process the job
             try:
-                process_audio_job(job_data)
+                job_type = job_data.get('job_type') or 'audio'
+                if job_type == 'audio':
+                    process_audio_job(job_data)
+                elif job_type == 'qwen3_voice_design_preview':
+                    process_qwen3_voice_design_preview_task(job_data)
+                elif job_type == 'qwen3_voice_design_save':
+                    process_qwen3_voice_design_save_task(job_data)
+                else:
+                    raise ValueError(f"Unsupported job type: {job_type}")
             except Exception as e:
                 logger.error(f"Error processing job {job_id}: {e}", exc_info=True)
                 with queue_lock:
@@ -1395,6 +1640,8 @@ def process_audio_job(job_data):
                 "chapter_index": chapter_idx,
                 "chunk_index": chunk_idx,
                 "speaker": segment.get("speaker"),
+                "engine": engine_name,
+                "emotion": segment.get("emotion"),
                 "text": segment.get("text"),
                 "file_path": file_path,
                 "relative_file": os.path.relpath(file_path, job_dir),
@@ -1434,6 +1681,7 @@ def process_audio_job(job_data):
                         "chunk_index": chunk_idx,
                         "speaker": speaker,
                         "text": chunk_text,
+                        "emotion": segment.get("emotion"),
                     })
             engine_kwargs = {
                 "segments": segments,
@@ -1564,6 +1812,7 @@ def process_audio_job(job_data):
         except Exception:
             raise
 
+
         if all_full_story_chunks and not review_mode:
             full_story_name = f"full_story.{output_format}"
             full_story_path = job_dir / full_story_name
@@ -1670,6 +1919,74 @@ def process_audio_job(job_data):
         raise
     finally:
         cancel_flags.pop(job_id, None)
+
+
+def _enqueue_qwen3_voice_design_task(task_type: str, payload: Dict[str, Any]) -> str:
+    start_worker_thread()
+    job_id = str(uuid.uuid4())
+    job_entry = {
+        "status": "queued",
+        "progress": 0,
+        "created_at": datetime.now().isoformat(),
+        "job_type": task_type,
+        "title": "Qwen3 VoiceDesign",
+    }
+    with queue_lock:
+        jobs[job_id] = job_entry
+    job_payload = {
+        "job_id": job_id,
+        "job_type": task_type,
+        "payload": payload,
+    }
+    if task_type == "qwen3_voice_design_preview":
+        job_payload["config"] = load_config()
+    job_queue.put(job_payload)
+    return job_id
+
+
+def process_qwen3_voice_design_preview_task(job_data: Dict[str, Any]) -> None:
+    """Process a queued Qwen3 VoiceDesign preview request."""
+    job_id = job_data["job_id"]
+    payload = job_data.get("payload") or {}
+    config = job_data.get("config") or load_config()
+    try:
+        result = _generate_voice_design_preview(payload, config)
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if job_entry:
+                job_entry["status"] = "completed"
+                job_entry["progress"] = 100
+                job_entry["completed_at"] = datetime.now().isoformat()
+                job_entry["result"] = result
+    except Exception as exc:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if job_entry:
+                job_entry["status"] = "failed"
+                job_entry["error"] = str(exc)
+        raise
+
+
+def process_qwen3_voice_design_save_task(job_data: Dict[str, Any]) -> None:
+    """Process a queued Qwen3 VoiceDesign save request."""
+    job_id = job_data["job_id"]
+    payload = job_data.get("payload") or {}
+    try:
+        result = _save_voice_design_payload(payload)
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if job_entry:
+                job_entry["status"] = "completed"
+                job_entry["progress"] = 100
+                job_entry["completed_at"] = datetime.now().isoformat()
+                job_entry["result"] = result
+    except Exception as exc:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if job_entry:
+                job_entry["status"] = "failed"
+                job_entry["error"] = str(exc)
+        raise
 
 
 def start_worker_thread():
@@ -1794,6 +2111,7 @@ def _serialize_chatterbox_voice(entry: Dict[str, Any]) -> Dict[str, Any]:
         "is_valid_prompt": bool(duration_seconds and duration_seconds >= MIN_CHATTERBOX_PROMPT_SECONDS),
         "gender": entry.get("gender"),  # Male, Female, or None
         "language": entry.get("language"),  # Language code like en-US
+        "description": entry.get("description"),
         "source": "local",  # local voices vs external
     }
 
@@ -1833,6 +2151,136 @@ def _get_audio_duration(file_path: Path) -> Optional[float]:
 
 # Cache for voice prompt durations to avoid re-reading files
 _voice_prompt_duration_cache: Dict[str, float] = {}
+_voice_prompt_transcript_cache: Optional[Dict[str, str]] = None
+
+
+def _load_voice_prompt_transcripts() -> Dict[str, str]:
+    """Load cached prompt transcripts from data/voice_prompts/transcripts.json."""
+    global _voice_prompt_transcript_cache
+    if _voice_prompt_transcript_cache is not None:
+        return _voice_prompt_transcript_cache
+    transcripts_path = VOICE_PROMPT_DIR / "transcripts.json"
+    if not transcripts_path.exists():
+        _voice_prompt_transcript_cache = {}
+        return _voice_prompt_transcript_cache
+    try:
+        with transcripts_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+            _voice_prompt_transcript_cache = data.get("transcripts", {})
+            return _voice_prompt_transcript_cache
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Failed to load voice prompt transcripts: %s", exc)
+        _voice_prompt_transcript_cache = {}
+        return _voice_prompt_transcript_cache
+
+
+def _save_voice_prompt_transcripts(transcripts: Dict[str, str]) -> None:
+    transcripts_path = VOICE_PROMPT_DIR / "transcripts.json"
+    transcripts_path.parent.mkdir(parents=True, exist_ok=True)
+    with transcripts_path.open("w", encoding="utf-8") as handle:
+        json.dump({"transcripts": transcripts}, handle, indent=2, ensure_ascii=False)
+
+
+def _set_voice_prompt_transcript(file_path: Path, transcript: str) -> None:
+    key = _voice_prompt_transcript_key(file_path)
+    if not key:
+        return
+    transcripts = _load_voice_prompt_transcripts()
+    transcripts[key] = transcript
+    _save_voice_prompt_transcripts(transcripts)
+
+
+def _generate_voice_design_preview(payload: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, str]:
+    text = (payload.get("text") or "").strip()
+    instruct = (payload.get("instruct") or "").strip()
+    language = (payload.get("language") or "Auto").strip() or "Auto"
+    if not text:
+        raise ValueError("Text is required to generate a preview.")
+
+    with gpu_inference_lock:
+        model = _get_qwen3_voice_design_model(config)
+        wavs, sr = model.generate_voice_design(
+            text=text,
+            instruct=instruct or "",
+            language=language or "Auto",
+            non_streaming_mode=True,
+        )
+    if not wavs:
+        raise RuntimeError("No audio produced for preview.")
+    buffer = io.BytesIO()
+    sf.write(buffer, wavs[0], int(sr), format="wav")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return {
+        "audio_base64": encoded,
+        "mime_type": "audio/wav",
+    }
+
+
+def _save_voice_design_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    name = (payload.get("name") or "").strip()
+    text = (payload.get("text") or "").strip()
+    gender = (payload.get("gender") or "").strip() or None
+    language = (payload.get("language") or "Auto").strip() or "Auto"
+    description = (payload.get("description") or "").strip() or None
+    audio_base64 = payload.get("audio_base64")
+
+    if not name:
+        raise ValueError("Voice name is required.")
+    if not text:
+        raise ValueError("Sample text is required.")
+    if not audio_base64:
+        raise ValueError("Preview audio is required.")
+
+    try:
+        audio_bytes = base64.b64decode(audio_base64)
+    except Exception as exc:
+        raise ValueError("Invalid audio payload.") from exc
+
+    slug = _slugify_filename(name)
+    target_path = VOICE_PROMPT_DIR / f"{slug}.wav"
+    counter = 1
+    while target_path.exists():
+        target_path = VOICE_PROMPT_DIR / f"{slug}_{counter}.wav"
+        counter += 1
+
+    with target_path.open("wb") as handle:
+        handle.write(audio_bytes)
+
+    duration_seconds = _measure_audio_duration(target_path)
+    if not duration_seconds:
+        target_path.unlink(missing_ok=True)
+        raise ValueError("Unable to determine audio duration.")
+    if duration_seconds < MIN_CHATTERBOX_PROMPT_SECONDS:
+        target_path.unlink(missing_ok=True)
+        raise ValueError(
+            f"Clip is only {duration_seconds:.2f}s. Voice prompts require at least {MIN_CHATTERBOX_PROMPT_SECONDS:.0f} seconds."
+        )
+
+    entries = _load_chatterbox_voice_entries()
+    entry = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "file_name": target_path.name,
+        "created_at": datetime.utcnow().isoformat(),
+        "size_bytes": target_path.stat().st_size,
+        "duration_seconds": duration_seconds,
+        "gender": gender,
+        "language": language if language and language != "Auto" else None,
+        "description": description,
+    }
+    entries.append(entry)
+    _save_chatterbox_voice_entries(entries)
+    _set_voice_prompt_transcript(target_path, text)
+    return _serialize_chatterbox_voice(entry)
+
+
+def _voice_prompt_transcript_key(file_path: Path) -> Optional[str]:
+    try:
+        stat = file_path.stat()
+    except OSError:
+        return None
+    key_data = f"{file_path.name}:{stat.st_size}:{stat.st_mtime}"
+    return hashlib.md5(key_data.encode()).hexdigest()[:16]
 
 
 @app.route('/api/voice-prompts', methods=['GET'])
@@ -1843,6 +2291,7 @@ def list_voice_prompts():
         chatterbox_entries = _load_chatterbox_voice_entries()
         chatterbox_by_file = {e.get("file_name"): e for e in chatterbox_entries if e.get("file_name")}
         
+        transcripts = _load_voice_prompt_transcripts()
         prompts = []
         for path in sorted(VOICE_PROMPT_DIR.glob('*')):
             if not path.is_file():
@@ -1872,6 +2321,8 @@ def list_voice_prompts():
             language = registry_entry.get("language")
             display_name = registry_entry.get("name") or path.stem.replace('_', ' ').replace('-', ' ').title()
             
+            transcript_key = _voice_prompt_transcript_key(path)
+            prompt_transcript = transcripts.get(transcript_key) if transcript_key else None
             prompts.append(
                 {
                     "name": path.name,
@@ -1880,6 +2331,7 @@ def list_voice_prompts():
                     "duration_seconds": duration_seconds,
                     "gender": gender,
                     "language": language,
+                    "transcript": prompt_transcript,
                 }
             )
         return jsonify({"success": True, "prompts": prompts})
@@ -3355,6 +3807,8 @@ def generate_audio():
             config['tts_engine'] = normalized_engine
 
         active_engine = _normalize_engine_name(config.get('tts_engine'))
+        logger.info("Generation request using engine='%s' (requested='%s')", active_engine, requested_engine or "(config)")
+        logger.warning("TTS generation engine selected: %s", active_engine)
         _apply_engine_option_overrides(config, active_engine, engine_options)
         if requested_format:
             config['output_format'] = requested_format
@@ -4048,10 +4502,101 @@ def health_check():
         "success": True,
         "tts_engine": config.get('tts_engine', 'kokoro'),
         "kokoro_available": KOKORO_AVAILABLE,
+        "qwen3_available": QWEN3_AVAILABLE,
         "cuda_available": False if not KOKORO_AVAILABLE else __import__('torch').cuda.is_available(),
         "vram": vram_info,
         "loaded_engines": list(tts_engine_instances.keys()),
     })
+
+
+@app.route('/api/qwen3/metadata', methods=['GET'])
+def qwen3_metadata():
+    """Return supported speakers and languages for Qwen3 CustomVoice."""
+    if not QWEN3_AVAILABLE:
+        return jsonify({
+            "success": False,
+            "error": "qwen-tts is not installed. Run setup to enable Qwen3-TTS local mode."
+        }), 400
+    try:
+        config = load_config()
+        engine = get_tts_engine("qwen3_custom", config=config)
+        speakers = getattr(engine, "supported_speakers", []) or []
+        languages = getattr(engine, "supported_languages", []) or []
+        return jsonify({
+            "success": True,
+            "speakers": speakers,
+            "languages": languages,
+        })
+    except Exception as exc:
+        logger.error("Failed to load Qwen3 metadata: %s", exc, exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(exc),
+        }), 500
+
+
+@app.route('/api/qwen3/voice-design/preview', methods=['POST'])
+def qwen3_voice_design_preview():
+    if not QWEN3_AVAILABLE:
+        return jsonify({
+            "success": False,
+            "error": "qwen-tts is not installed. Run setup to enable Qwen3-TTS local mode."
+        }), 400
+    payload = request.get_json(silent=True) or {}
+    text = (payload.get("text") or "").strip()
+
+    if not text:
+        return jsonify({"success": False, "error": "Text is required to generate a preview."}), 400
+    job_id = _enqueue_qwen3_voice_design_task("qwen3_voice_design_preview", payload)
+    return jsonify({"success": True, "job_id": job_id}), 202
+
+
+@app.route('/api/qwen3/voice-design/save', methods=['POST'])
+def qwen3_voice_design_save():
+    if not QWEN3_AVAILABLE:
+        return jsonify({
+            "success": False,
+            "error": "qwen-tts is not installed. Run setup to enable Qwen3-TTS local mode."
+        }), 400
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    text = (payload.get("text") or "").strip()
+    audio_base64 = payload.get("audio_base64")
+
+    if not name:
+        return jsonify({"success": False, "error": "Voice name is required."}), 400
+    if not text:
+        return jsonify({"success": False, "error": "Sample text is required."}), 400
+    if not audio_base64:
+        return jsonify({"success": False, "error": "Preview audio is required."}), 400
+
+    try:
+        base64.b64decode(audio_base64)
+    except Exception:
+        return jsonify({"success": False, "error": "Invalid audio payload."}), 400
+
+    job_id = _enqueue_qwen3_voice_design_task("qwen3_voice_design_save", payload)
+    return jsonify({"success": True, "job_id": job_id}), 202
+
+
+@app.route('/api/qwen3/voice-design/tasks/<task_id>', methods=['GET'])
+def qwen3_voice_design_task_status(task_id: str):
+    with queue_lock:
+        job_entry = jobs.get(task_id)
+        if not job_entry:
+            return jsonify({"success": False, "error": "Task not found."}), 404
+        if job_entry.get("job_type") not in {"qwen3_voice_design_preview", "qwen3_voice_design_save"}:
+            return jsonify({"success": False, "error": "Task type mismatch."}), 400
+        payload = {
+            "success": True,
+            "status": job_entry.get("status"),
+            "progress": job_entry.get("progress"),
+        }
+        if job_entry.get("status") == "completed":
+            payload["result"] = job_entry.get("result")
+        if job_entry.get("status") == "failed":
+            payload["error"] = job_entry.get("error")
+        return jsonify(payload)
 
 
 @app.route('/api/cleanup-vram', methods=['POST'])

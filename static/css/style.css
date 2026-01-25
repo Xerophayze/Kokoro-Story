@@ -1051,6 +1051,88 @@ audio {
     min-width: 90px;
 }
 
+/* Available Voices Accordion */
+.voices-accordion {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.voices-section {
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.4);
+    overflow: hidden;
+}
+
+.voices-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 20px;
+    cursor: pointer;
+    user-select: none;
+    background: rgba(99, 102, 241, 0.08);
+    transition: background 0.2s ease;
+}
+
+.voices-section-header:hover {
+    background: rgba(99, 102, 241, 0.16);
+}
+
+.voices-section-header h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.voices-section-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.voices-section-toggle {
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    transition: transform 0.2s ease;
+}
+
+.voices-section.collapsed .voices-section-toggle {
+    transform: rotate(-90deg);
+}
+
+.voices-section-content {
+    padding: 18px 20px 22px;
+    border-top: 1px solid rgba(99, 102, 241, 0.12);
+}
+
+.voices-section.collapsed .voices-section-content {
+    display: none;
+}
+
+.qwen-voice-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 12px;
+}
+
+.qwen-voice-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.qwen-voice-actions .help-text {
+    margin: 0;
+}
+
+.qwen-voice-preview {
+    margin-top: 10px;
+}
+
 /* Responsive: stack on mobile */
 @media (max-width: 640px) {
     .kokoro-main-controls {
@@ -1206,18 +1288,30 @@ audio {
 .assignment-body {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 6px;
+    width: 100%;
 }
 
 .compact-assignment .assignment-selection-group {
     display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
+    flex-direction: column;
+    gap: 6px;
     width: 100%;
 }
 
+/* Hide empty voice-fx panels completely */
+.voice-inline-card:empty,
+.voice-fx-inline:empty,
+[data-role="kokoro-panel"]:empty {
+    display: none !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+}
+
 .assignment-select {
-    flex: 1 1 150px;
+    width: 100%;
     min-width: 0;
 }
 
@@ -1336,6 +1430,47 @@ audio {
     gap: 6px;
 }
 
+.qwen3-inline-options {
+    width: 100%;
+    margin-top: 8px;
+}
+
+.qwen3-options-row {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+}
+
+.qwen3-lang-select {
+    width: 100%;
+}
+
+.qwen3-instruct-field {
+    width: 100%;
+}
+
+.qwen3-inline-options input[type="text"] {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--input-bg);
+    color: var(--text-color);
+    font-size: 0.9rem;
+    box-sizing: border-box;
+}
+
+.qwen3-inline-options select {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.qwen3-inline-options input[type="text"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
 .assignment-selection-group {
     align-items: flex-end;
 }
@@ -1380,6 +1515,16 @@ audio {
     gap: 12px;
 }
 
+/* Hide kokoro panel completely when not displayed */
+.voice-inline-card[style*="display: none"],
+.voice-fx-inline[style*="display: none"] {
+    display: none !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
 .voice-fx-inline {
     flex: 1 1 auto;
 }
@@ -1411,7 +1556,8 @@ audio {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    flex: 1 1 200px;
+    flex: 0 0 auto;
+    width: 100%;
 }
 
 .voice-select-inline label {
@@ -1430,6 +1576,9 @@ audio {
     background: rgba(15, 23, 42, 0.9);
     color: var(--text-color);
     font-size: 0.92rem;
+    height: auto;
+    min-height: unset;
+    max-height: 42px;
 }
 
 .voice-inline-card .fx-field.fx-inline {
@@ -2217,16 +2366,27 @@ audio {
     font-size: 0.9rem;
 }
 
+.emotion-detection-info {
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: rgba(168, 85, 247, 0.15);
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    border-radius: 8px;
+    color: var(--text-color);
+    font-size: 0.9rem;
+}
+
 /* Inline Voice Assignment */
 .voice-assignment-row {
     display: flex;
-    align-items: center;
-    gap: 15px;
+    flex-direction: column;
+    gap: 12px;
     margin-bottom: 15px;
     padding: 15px;
     background: var(--bg-color);
     border-radius: 8px;
     border: 1px solid var(--border-color);
+    overflow: hidden;
 }
 
 .voice-assignment-row label {
@@ -3428,4 +3588,44 @@ audio {
 
 .library-chunk-voice-select {
     min-width: 180px;
+}
+
+/* Qwen3 options in library view */
+.bulk-qwen3-options,
+.chunk-qwen3-options {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.bulk-qwen3-options input[type="text"],
+.chunk-qwen3-options input[type="text"] {
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    background: var(--card-bg);
+    color: var(--text-color);
+    font-size: 0.9rem;
+}
+
+.bulk-qwen3-options input[type="text"]:focus,
+.chunk-qwen3-options input[type="text"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.chunk-qwen3-language {
+    flex: 1;
+    min-width: 100px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    background: var(--card-bg);
+    color: var(--text-color);
+    font-size: 0.9rem;
+}
+
+.chunk-qwen3-instruct {
+    flex: 2;
+    min-width: 150px;
 }
