@@ -1,19 +1,13 @@
 # TTS-Story
 
-A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M**, **Chatterbox**, and **VoxCPM 1.5**, with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.
+A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M**, **Chatterbox**, **VoxCPM 1.5**, and **Qwen3 TTS** (Custom Voice, Clone, Voice Creation), with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.
 
 <div align="center">
   <table>
-    <td>
-      <a href="https://github.com/user-attachments/assets/fdec637a-e543-4000-88d9-050ca68a413f" target="_blank">
-        <img src="https://github.com/user-attachments/assets/fdec637a-e543-4000-88d9-050ca68a413f" alt="chrome_uQg512nBym" width="280" />
-      </a>
-    </td>
-    </tr>
     <tr>
       <td>
-        <a href="https://github.com/user-attachments/assets/9af12bf6-47f7-45f5-8c0a-e6220b694497" target="_blank">
-          <img src="https://github.com/user-attachments/assets/9af12bf6-47f7-45f5-8c0a-e6220b694497" alt="chrome_d8ZrL1laNn" width="280" />
+        <a href="https://github.com/user-attachments/assets/fdec637a-e543-4000-88d9-050ca68a413f" target="_blank">
+          <img src="https://github.com/user-attachments/assets/fdec637a-e543-4000-88d9-050ca68a413f" alt="chrome_uQg512nBym" width="280" />
         </a>
       </td>
       <td>
@@ -38,6 +32,12 @@ A web-based Text-to-Speech application supporting multiple TTS engines including
           <img src="https://github.com/user-attachments/assets/b961444c-6b1f-46a2-b09c-a618e8557ea2" alt="chrome_CP9EEaBnE5" width="280" />
         </a>
       </td>
+      <td>
+        <a href="https://github.com/user-attachments/assets/9af12bf6-47f7-45f5-8c0a-e6220b694497" target="_blank">
+          <img src="https://github.com/user-attachments/assets/9af12bf6-47f7-45f5-8c0a-e6220b694497" alt="chrome_d8ZrL1laNn" width="280" />
+        </a>
+      </td>
+    </tr>
     <tr>
       <td>
         <a href="https://github.com/user-attachments/assets/2a57d2cc-eddb-4648-89c8-27b353479549" target="_blank">
@@ -57,12 +57,15 @@ A web-based Text-to-Speech application supporting multiple TTS engines including
 ## Features
 
 ### TTS Engines
-- **Multi-Engine Support**: Choose from five TTS engine options:
+- **Multi-Engine Support**: Choose from eight TTS engine options:
   - **Kokoro · Local GPU** - Run Kokoro-82M locally on your NVIDIA GPU
   - **Kokoro · Replicate** - Use Kokoro via Replicate cloud API
   - **Chatterbox · Local GPU** - Run Chatterbox locally with voice cloning (~8GB VRAM required)
   - **Chatterbox · Replicate** - Use Chatterbox via Replicate cloud API (`resemble-ai/chatterbox-turbo`)
   - **VoxCPM 1.5 · Local GPU** - Run VoxCPM 1.5 locally with voice cloning and automatic transcription
+  - **Qwen3 TTS · Custom Voice** - Generate with Qwen3 TTS custom voice prompts
+  - **Qwen3 TTS · Clone** - Clone a voice from reference audio using Qwen3 TTS
+  - **Qwen3 TTS · Voice Creation** - Create a brand-new voice using Qwen3 TTS voice design
 - **Unified Replicate API**: Single API token works for both Kokoro and Chatterbox Replicate engines
 - **Voice Cloning**: Upload your own voice recordings (10-15 seconds recommended) to clone any voice with Chatterbox or VoxCPM
 - **Voice Prompt Management**: Add, rename, delete, and preview custom voice prompts with drag-and-drop bulk upload
@@ -257,7 +260,7 @@ python app.py
 
 ### Selecting a TTS Engine
 
-TTS-Story supports five TTS engine options. In the **Settings** tab, choose your preferred default engine:
+TTS-Story supports eight TTS engine options. In the **Settings** tab, choose your preferred default engine:
 
 | Engine | Description | Requirements |
 |--------|-------------|--------------|
@@ -266,6 +269,9 @@ TTS-Story supports five TTS engine options. In the **Settings** tab, choose your
 | **Chatterbox · Local GPU** | Chatterbox with voice cloning | NVIDIA GPU (~8GB VRAM) |
 | **Chatterbox · Replicate** | Chatterbox via cloud API | Replicate API token |
 | **VoxCPM 1.5 · Local GPU** | VoxCPM with voice cloning & auto-transcription | NVIDIA GPU (~6GB VRAM) |
+| **Qwen3 TTS · Custom Voice** | Qwen3 TTS custom voice prompts | NVIDIA GPU (local) |
+| **Qwen3 TTS · Clone** | Qwen3 TTS voice cloning from reference audio | NVIDIA GPU (local) |
+| **Qwen3 TTS · Voice Creation** | Qwen3 TTS voice design (new voice creation) | NVIDIA GPU (local) |
 
 You can also override the engine per-job in the **Generate** tab.
 
@@ -446,6 +452,9 @@ Settings are stored in `config.json`:
 | `chatterbox_turbo_local` | Chatterbox local GPU with voice cloning |
 | `chatterbox_turbo_replicate` | Chatterbox via Replicate cloud API |
 | `voxcpm_local` | VoxCPM 1.5 local GPU with voice cloning |
+| `qwen3_custom_voice` | Qwen3 TTS custom voice mode |
+| `qwen3_clone` | Qwen3 TTS voice cloning mode |
+| `qwen3_voice_creation` | Qwen3 TTS voice creation mode |
 
 Any settings you override in the Generate tab (format, bitrate, engine) are sent along with the job payload while keeping the saved defaults intact.
 
