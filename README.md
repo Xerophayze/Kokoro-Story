@@ -185,7 +185,7 @@ All voice selection dropdowns (main screen and library) now show:
 ### Automatic Installation (Recommended)
 
 1. **Run the installer/updater**
-[install-update.bat](https://github.com/Xerophayze/TTS-Story/blob/52b8d3a8edd6ac1ad8acfb1b83421bb4508d8d01/install-update.bat)
+[Click here to download the Installer (install-update.bat)](https://github.com/Xerophayze/TTS-Story/raw/52b8d3a8edd6ac1ad8acfb1b83421bb4508d8d01/install-update.bat)
 
 The installer will clone or update the repository, then run the setup script which will automatically:
 - ✅ Detect your Python version
