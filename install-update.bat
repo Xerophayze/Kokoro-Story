@@ -7,7 +7,7 @@ set "GIT_INSTALLER_URL=https://github.com/git-for-windows/git/releases/latest/do
 set "GIT_INSTALLER=%TEMP%\git-installer.exe"
 
 echo ========================================
-echo TTS-Story Windows Installer
+echo TTS-Story Windows Install/Update
 echo ========================================
 echo.
 
@@ -41,9 +41,25 @@ if errorlevel 1 (
 )
 
 echo.
-echo Cloning repository...
+echo Cloning or updating repository...
 if exist "%REPO_DIR%" (
-    echo Folder "%REPO_DIR%" already exists. Skipping clone.
+    if exist "%REPO_DIR%\.git" (
+        echo Repository found. Pulling latest updates...
+        pushd "%REPO_DIR%"
+        git pull
+        if errorlevel 1 (
+            echo ERROR: Git pull failed.
+            popd
+            pause
+            exit /b 1
+        )
+        popd
+    ) else (
+        echo ERROR: "%REPO_DIR%" exists but is not a Git repository.
+        echo Please rename or remove the folder and re-run this script.
+        pause
+        exit /b 1
+    )
 ) else (
     git clone "%REPO_URL%" "%REPO_DIR%"
     if errorlevel 1 (
@@ -66,5 +82,5 @@ if exist "%REPO_DIR%\setup.bat" (
 )
 
 echo.
-echo ✅ Install complete.
+echo ✅ Install/update complete.
 pause
