@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TTS-Story - Multi-Voice TTS</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2326324a'/%3E%3Cpath d='M18 22h6v20h-6zM28 22h6v20h-6zM38 22h6v20h-6z' fill='%23a78bfa'/%3E%3Ccircle cx='32' cy='16' r='4' fill='%23fcd34d'/%3E%3Ccircle cx='32' cy='48' r='4' fill='%23fcd34d'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="/static/css/style.css?v=40">
+    <link rel="stylesheet" href="/static/css/style.css?v=41">
     <link rel="stylesheet" href="/static/css/help.css?v=3">
 </head>
 <body>
@@ -184,8 +184,8 @@
                         <div id="speakers-list"></div>
                         <div class="speakers-actions">
                             <button type="button" id="build-speaker-profiles-btn" class="btn btn-secondary btn-sm" disabled>Build Profiles</button>
-                            <button type="button" id="generate-voices-btn" class="btn btn-secondary btn-sm" disabled title="Checking Qwen3-TTS VoiceDesign availability…">Generate Voices</button>
-                            <span id="generate-voices-unavailable" class="help-text hidden">Install Qwen3-TTS under Settings → Engine Settings to generate voices.</span>
+                            <button type="button" id="generate-voices-btn" class="btn btn-secondary btn-sm" disabled title="Checking voice-design engine availability…">Generate Voices</button>
+                            <span id="generate-voices-unavailable" class="help-text hidden">Install Qwen3-TTS or Breeze TTS 2 under Settings → Engine Settings to generate voices.</span>
                             <button type="button" id="auto-assign-voices-btn" class="btn btn-secondary btn-sm">Auto Assign</button>
                         </div>
                     </div>
@@ -233,11 +233,13 @@
                                                 <option value="index_tts">IndexTTS · Zero-Shot Clone</option>
                                                 <option value="dots_tts">Dot.TTS · Voice Clone</option>
                                                 <option value="audio8_tts">Audio8 TTS · Voice Clone</option>
+                                                <option value="breeze_tts_2">Breeze TTS 2 · Design / Clone / Direction</option>
                                                 <option value="azure_speech">Microsoft Azure Speech · Cloud</option>
                                                 <option value="edge_tts">Microsoft Edge TTS · Experimental Cloud</option>
                                                 <option value="elevenlabs">ElevenLabs · Cloud</option>
                                                 <option value="openai_tts">OpenAI-compatible TTS · Cloud</option>
                                                 <option value="localai_tts">LocalAI TTS · Self-hosted</option>
+                                                <option value="breeze_api">Breeze API · Hosted</option>
                                             </select>
                                         </div>
                                     </div>
@@ -478,11 +480,12 @@
                             <label>Voice Design Engine</label>
                             <div class="btn-group" id="voice-creation-engine-toggle" role="group">
                                 <button type="button" class="btn btn-secondary active" data-voice-engine="qwen3" id="voice-creation-qwen3-btn">Qwen3-TTS</button>
+                                <button type="button" class="btn btn-secondary" data-voice-engine="breeze" id="voice-creation-breeze-btn">Breeze TTS 2</button>
                                 <button type="button" class="btn btn-secondary" data-voice-engine="omnivoice" id="voice-creation-omnivoice-btn">OmniVoice</button>
                             </div>
                         </div>
 
-                        <!-- Qwen3 fields -->
+                        <!-- Shared Qwen3 / Breeze voice-design fields -->
                         <div id="voice-creation-qwen3-fields">
                             <div class="qwen-voice-grid">
                                 <div class="form-group">
@@ -517,13 +520,13 @@
                                 <textarea id="qwen-voice-instruct" rows="3" placeholder="e.g., Speak with controlled intensity and a smoky, cinematic tone."></textarea>
                             </div>
                             <div class="qwen-voice-actions">
-                                <button type="button" class="btn btn-primary" id="qwen-voice-generate-btn" disabled title="Checking Qwen3-TTS VoiceDesign availability…">Generate Preview</button>
+                                <button type="button" class="btn btn-primary" id="qwen-voice-generate-btn" disabled title="Checking voice-design engine availability…">Generate Preview</button>
                                 <button type="button" class="btn btn-secondary" id="qwen-voice-save-btn" disabled>Save to Voice Prompts</button>
                                 <span class="help-text" id="qwen-voice-status"></span>
                             </div>
                             <div id="qwen-voice-unavailable" class="engine-action-notice hidden">
-                                <span>Qwen3-TTS VoiceDesign must be installed before voices can be generated.</span>
-                                <button type="button" class="btn btn-secondary btn-sm" data-open-qwen3-settings>Open Qwen3 Settings</button>
+                                <span id="voice-creation-unavailable-message">The selected voice-design engine must be installed before voices can be generated.</span>
+                                <button type="button" class="btn btn-secondary btn-sm" id="voice-creation-open-engine-settings">Open Engine Settings</button>
                             </div>
                             <div class="qwen-voice-preview">
                                 <audio id="qwen-voice-preview" controls></audio>
@@ -777,11 +780,13 @@
                                     <option value="index_tts">IndexTTS · Zero-Shot Clone</option>
                                     <option value="dots_tts">Dot.TTS · Voice Clone</option>
                                     <option value="audio8_tts">Audio8 TTS · Voice Clone</option>
+                                    <option value="breeze_tts_2">Breeze TTS 2 · Design / Clone / Direction</option>
                                     <option value="azure_speech">Microsoft Azure Speech · Cloud</option>
                                     <option value="edge_tts">Microsoft Edge TTS · Experimental Cloud</option>
                                     <option value="elevenlabs">ElevenLabs · Cloud</option>
                                     <option value="openai_tts">OpenAI-compatible TTS · Cloud</option>
                                     <option value="localai_tts">LocalAI TTS · Self-hosted</option>
+                                    <option value="breeze_api">Breeze API · Hosted</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -835,6 +840,7 @@
                                     <button type="button" class="engine-tab-btn" data-engine-tab="index-tts">IndexTTS</button>
                                     <button type="button" class="engine-tab-btn" data-engine-tab="dots-tts">Dot.TTS</button>
                                     <button type="button" class="engine-tab-btn" data-engine-tab="audio8-tts">Audio8 TTS</button>
+                                    <button type="button" class="engine-tab-btn" data-engine-tab="breeze-tts-2">Breeze TTS 2</button>
                                 </div>
                             </section>
                             <section class="engine-tab-group engine-tab-group-remote" aria-labelledby="remote-engine-tabs-label">
@@ -850,6 +856,7 @@
                                     <button type="button" class="engine-tab-btn" data-engine-tab="elevenlabs">ElevenLabs</button>
                                     <button type="button" class="engine-tab-btn" data-engine-tab="openai-tts">OpenAI TTS</button>
                                     <button type="button" class="engine-tab-btn" data-engine-tab="localai-tts">LocalAI TTS</button>
+                                    <button type="button" class="engine-tab-btn" data-engine-tab="breeze-api">Breeze API</button>
                                 </div>
                             </section>
                         </div>
@@ -876,6 +883,46 @@
                                 <div class="form-group"><label for="audio8-tts-default-prompt-text">Default Reference Transcript</label><textarea id="audio8-tts-default-prompt-text" rows="3" placeholder="Exact words spoken in the reference sample"></textarea></div>
                             </div>
                             <p class="help-text">The Apache-2.0 0.6B model downloads on first use. Initial loading can take several minutes.</p>
+                        </div>
+
+                        <div class="engine-panel" id="engine-panel-breeze-tts-2">
+                            <div class="section-title-inline settings-panel-title">
+                                <h4>Breeze TTS 2 · Design / Clone / Direction</h4>
+                                <button type="button" class="help-icon" data-help-id="engine-breeze-tts-2" aria-label="Help: Breeze TTS 2">?</button>
+                            </div>
+                            <div class="warning-box">
+                                <strong>Research and non-commercial use only.</strong>
+                                The Breeze TTS 2 model weights and generated output may not be used commercially without a separate license.
+                                Review the <a href="https://huggingface.co/BreezeBlue/Breeze-TTS-2" target="_blank" rel="noopener noreferrer">official model license</a> before installation.
+                            </div>
+                            <label class="checkbox-label" style="margin: 0.75rem 0;">
+                                <input type="checkbox" id="breeze-tts-2-license-accept">
+                                I have reviewed and accept the BreezeBlue Research and Non-Commercial License.
+                            </label>
+                            <p class="help-text">PyTorch requires NVIDIA CUDA. Q8 GGUF uses Vulkan on Windows/Linux. Voice Direction applies a delivery instruction to an approved reference voice; use <code>[direction]...[/direction]</code> immediately before a speaker passage.</p>
+                            <div class="form-group">
+                                <label for="breeze-tts-2-runtime">Breeze Runtime (narration and voice design)</label>
+                                <select id="breeze-tts-2-runtime"><option value="pytorch">Original PyTorch</option><option value="q8">Q8 GGUF · Vulkan (experimental)</option></select>
+                                <p id="breeze-q8-status" class="help-text">Checking Q8 installation...</p>
+                                <button type="button" id="breeze-q8-install" class="btn btn-secondary btn-sm">Install / Repair Q8</button>
+                                <p class="help-text">Q8 downloads about 3.3 GB and builds a native library. Windows: install Visual Studio 2022 C++ Build Tools, CMake, and the <a href="https://vulkan.lunarg.com/sdk/home" target="_blank" rel="noopener noreferrer">Vulkan SDK</a> first. Linux: C++17 compiler, CMake, Vulkan development headers, and glslc. Save Settings after choosing a runtime. Uninstall Engine removes both runtimes and models, not voice samples.</p>
+                            </div>
+                            <div class="settings-form-grid">
+                                <div class="form-group"><label for="breeze-tts-2-model-id">Model</label><input type="text" id="breeze-tts-2-model-id" value="BreezeBlue/Breeze-TTS-2"></div>
+                                <div class="form-group"><label for="breeze-tts-2-device">Device</label><select id="breeze-tts-2-device"><option value="auto">Auto (CUDA)</option><option value="cuda">CUDA</option></select></div>
+                                <div class="form-group"><label for="breeze-tts-2-chunk-size">Preferred Chunk Size (chars)</label><input type="number" id="breeze-tts-2-chunk-size" min="120" max="900" step="25" value="500"><small>Sentence-aware target; complete sentences are kept intact when practical.</small></div>
+                                <div class="form-group"><label for="breeze-tts-2-seed">Base Seed</label><input type="number" id="breeze-tts-2-seed" min="0" step="1" value="42"></div>
+                                <div class="form-group"><label for="breeze-tts-2-clone-cfg">Clone CFG</label><input type="number" id="breeze-tts-2-clone-cfg" min="0.1" max="10" step="0.1" value="1"></div>
+                                <div class="form-group"><label for="breeze-tts-2-design-cfg">Design CFG</label><input type="number" id="breeze-tts-2-design-cfg" min="0.1" max="10" step="0.1" value="4"></div>
+                                <div class="form-group"><label for="breeze-tts-2-direction-cfg">Direction CFG</label><input type="number" id="breeze-tts-2-direction-cfg" min="0.1" max="10" step="0.1" value="4"></div>
+                                <div class="form-group"><label for="breeze-tts-2-max-new-tokens">Maximum Output Tokens</label><input type="number" id="breeze-tts-2-max-new-tokens" min="128" max="3000" step="64" value="1500"></div>
+                                <div class="form-group"><label for="breeze-tts-2-max-seq-len">Maximum Sequence Length</label><input type="number" id="breeze-tts-2-max-seq-len" min="512" max="4096" step="256" value="2048"></div>
+                                <div class="form-group"><label for="breeze-tts-2-default-prompt">Default Reference Voice (optional)</label><input type="text" id="breeze-tts-2-default-prompt" placeholder="data/voice_prompts/voice.wav"></div>
+                                <div class="form-group"><label for="breeze-tts-2-default-prompt-text">Exact Reference Transcript</label><textarea id="breeze-tts-2-default-prompt-text" rows="3" placeholder="Exact words spoken in the reference sample"></textarea></div>
+                                <div class="form-group"><label for="breeze-tts-2-default-instruction">Default Delivery Direction</label><textarea id="breeze-tts-2-default-instruction" rows="3">Speak clearly and naturally.</textarea></div>
+                            </div>
+                            <label class="checkbox-label"><input type="checkbox" id="breeze-tts-2-fast-mode"> Enable experimental PyTorch fast runtime (about 24 GB VRAM recommended; not used by Q8)</label>
+                            <p class="help-text">Eager mode uses roughly 8 GB during inference; 12 GB VRAM is recommended. Model files download on first use.</p>
                         </div>
 
                         <!-- Kokoro Panel -->
@@ -1158,6 +1205,38 @@
                             <p class="help-text">Instruction-capable models use the prompt above; legacy TTS-1 models ignore it. Provider charges and limits apply.</p>
                         </div>
 
+                        <div class="engine-panel" id="engine-panel-breeze-api">
+                            <h3>Breeze API · Hosted</h3>
+                            <button type="button" class="help-icon" data-help-id="engine-breeze-api" aria-label="Help: Breeze API">?</button>
+                            <p>Uses BreezeBlue's online service, not your local Breeze installation. An active paid subscription is required when generating commercial content; credits alone are not sufficient.</p>
+                            <div class="form-group"><label for="breeze-api-key">API Key</label><input type="password" id="breeze-api-key" autocomplete="off"></div>
+                            <div class="form-group"><label for="breeze-api-model">Model ID</label><input id="breeze-api-model" value="breeze-tts-2" list="breeze-api-models"><datalist id="breeze-api-models"></datalist></div>
+                            <div class="form-group"><label for="breeze-api-default-voice">Default saved voice ID</label><input id="breeze-api-default-voice" list="breeze-api-voices"><datalist id="breeze-api-voices"></datalist></div>
+                            <button type="button" class="btn btn-secondary" id="breeze-api-catalog">Load Models / Voices</button>
+                            <p id="breeze-api-catalog-status" role="status" aria-live="polite"></p>
+                            <p>Select local Qwen-created samples in Speaker Properties as usual. Starting a production asks for upload consent, then uploads each selected sample only when needed and reuses it on resume. Clear the local sample to use a hosted catalog voice instead.</p>
+                            <button type="button" class="btn btn-secondary" onclick="openBreezeProductions()">Manage Production Voices</button>
+                            <div class="form-group"><label for="breeze-api-instructions">Default delivery instructions</label><textarea id="breeze-api-instructions"></textarea><small>Passage [direction] instructions override this default. They are never spoken.</small></div>
+                            <div class="form-group"><label for="breeze-api-max-parallel">Concurrent requests (match your plan)</label><input type="number" id="breeze-api-max-parallel" min="1" max="8" value="1"></div>
+                            <div class="form-group"><label for="breeze-api-timeout">Timeout (seconds)</label><input type="number" id="breeze-api-timeout" min="10" max="600" value="180"></div>
+                            <div class="form-group"><label for="breeze-api-max-retries">Speech / rate-limit retries</label><input type="number" id="breeze-api-max-retries" min="0" max="8" value="2"><small>Disconnected speech requests check Breeze history before retrying. Missing history does not guarantee the request was not billed. Set 0 to disable retries. Voice uploads are never automatically retried after a disconnect.</small></div>
+                            <div class="form-group"><label for="breeze-api-guidance-scale">Guidance strength</label><input type="number" id="breeze-api-guidance-scale" min="1" max="10" step="0.1" value="4"></div>
+                            <div class="form-group"><label for="breeze-api-chunk-size">Target chunk size (characters)</label><input type="number" id="breeze-api-chunk-size" min="120" max="4000" value="1000"></div>
+                            <details><summary>Optional manual upload (shared across productions)</summary>
+                            <p>Not required for the normal project workflow. These manually saved voices are not owned or removed by production cleanup.</p>
+                            <p>Save your API settings first. Upload a Qwen-generated sample or another commercially cleared recording (WAV/MP3, 3+ seconds, up to 5 MB). Breeze transcribes it automatically. Uploading may consume credits; saving uses a private voice slot. This does not grant commercial rights to samples generated with local Breeze.</p>
+                            <button type="button" class="btn btn-secondary" id="breeze-api-load-samples">Load TTS-Story Samples</button>
+                            <div class="form-group"><label for="breeze-api-sample">Local sample</label><select id="breeze-api-sample"></select></div>
+                            <div class="form-group"><label for="breeze-api-voice-name">Saved voice name</label><input id="breeze-api-voice-name" maxlength="80"></div>
+                            <div class="form-group"><label for="breeze-api-language">Sample language (two-letter code)</label><input id="breeze-api-language" value="en" maxlength="2"></div>
+                            <label><input type="checkbox" id="breeze-api-consent"> I have the rights and required consent to upload and use this sample.</label>
+                            <button type="button" class="btn btn-primary" id="breeze-api-upload">Upload / Create Clone Preview</button>
+                            <audio id="breeze-api-preview" controls hidden></audio>
+                            <button type="button" class="btn btn-primary" id="breeze-api-save-voice" disabled>Approve / Save Private Voice</button>
+                            <p id="breeze-api-status" role="status" aria-live="polite"></p>
+                            </details>
+                            <a href="https://docs.breezeblue.ai/guides/voice-clone" target="_blank" rel="noopener">Breeze API documentation</a>
+                        </div>
                         <div class="engine-panel" id="engine-panel-localai-tts">
                             <div class="section-title-inline settings-panel-title">
                                 <h4>LocalAI TTS</h4>
@@ -2271,7 +2350,14 @@
                 <button class="modal-close" id="speaker-batch-modal-close">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="help-text"><strong>Qwen3-TTS VoiceDesign</strong> creates all bulk voice candidates. Generation can take several minutes per speaker, especially when multiple candidates are requested.</p>
+                <p class="help-text">Choose <strong>Qwen3-TTS</strong> or <strong>Breeze TTS 2</strong> to create the speaker candidates. The selected model stays loaded during the batch when possible; generation can still take several minutes per speaker.</p>
+                <div class="form-group">
+                    <label for="speaker-batch-design-engine">Voice design engine</label>
+                    <select id="speaker-batch-design-engine">
+                        <option value="qwen3" data-voice-design-option>Qwen3-TTS</option>
+                        <option value="breeze" data-voice-design-option>Breeze TTS 2</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label for="speaker-batch-prefix">Name prefix</label>
                     <input type="text" id="speaker-batch-prefix" placeholder="e.g., Dracula">
@@ -2743,11 +2829,13 @@
                                     <option value="index_tts">IndexTTS</option>
                                     <option value="dots_tts">Dot.TTS</option>
                                     <option value="audio8_tts">Audio8 TTS</option>
+                                    <option value="breeze_tts_2">Breeze TTS 2</option>
                                     <option value="azure_speech">Microsoft Azure Speech</option>
                                     <option value="edge_tts">Microsoft Edge TTS</option>
                                     <option value="elevenlabs">ElevenLabs</option>
                                     <option value="openai_tts">OpenAI-compatible TTS</option>
                                     <option value="localai_tts">LocalAI TTS</option>
+                                    <option value="breeze_api">Breeze API · Hosted</option>
                                 </select>
                             </div>
                             <div class="awr-preview-field awr-preview-field-voice">
@@ -2773,10 +2861,11 @@
     </div>
 
     <script src="/static/js/help.js?v=3"></script>
-    <script src="/static/js/main.js?v=64"></script>
-    <script src="/static/js/queue.js?v=5"></script>
-<script src="/static/js/library.js?v=47"></script>
-    <script src="/static/js/voice-manager.js?v=16"></script>
-<script src="/static/js/settings.js?v=30"></script>
+    <script src="/static/js/main.js?v=71"></script>
+    <script src="/static/js/breeze-api.js?v=4"></script>
+    <script src="/static/js/queue.js?v=8"></script>
+<script src="/static/js/library.js?v=48"></script>
+    <script src="/static/js/voice-manager.js?v=18"></script>
+<script src="/static/js/settings.js?v=33"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 {
   "title": "TTS-Story User Guide",
   "subtitle": "From first launch to a finished, reviewed audiobook",
-  "version": "2026.08.17.1",
+  "version": "2026.08.31.1",
   "categories": [
     {
       "id": "start-here",
@@ -48,11 +48,13 @@
         "engine-index-tts",
         "engine-dots-tts",
         "engine-audio8-tts",
+        "engine-breeze-tts-2",
         "engine-azure-speech",
         "engine-edge-tts",
         "engine-elevenlabs",
         "engine-openai-tts",
-        "engine-localai-tts"
+        "engine-localai-tts",
+        "engine-breeze-api"
       ]
     },
     {
@@ -359,6 +361,15 @@
       "engine_ids": ["audio8_tts"]
     },
     {
+      "id": "engine-breeze-tts-2",
+      "file": "engines/breeze-tts-2.md",
+      "title": "Breeze TTS 2: Design, Clone, and Direction",
+      "summary": "Use reference-free voice design, transcript-based cloning, and passage-level delivery direction under a non-commercial model license.",
+      "keywords": ["Breeze TTS 2", "voice design", "voice clone", "voice direction", "delivery", "non-commercial"],
+      "related": ["voice-prompts", "speaker-tags", "performance-tuning"],
+      "engine_ids": ["breeze_tts_2"]
+    },
+    {
       "id": "engine-azure-speech",
       "file": "engines/azure-speech.md",
       "title": "Microsoft Azure AI Speech",
@@ -393,6 +404,15 @@
       "keywords": ["OpenAI", "TTS", "speech", "custom endpoint", "voice ID", "API key"],
       "related": ["online-services", "cloud-errors", "generation-times"],
       "engine_ids": ["openai_tts"]
+    },
+    {
+      "id": "engine-breeze-api",
+      "file": "engines/breeze-api.md",
+      "title": "Breeze API: Hosted Narration",
+      "summary": "Configure hosted Breeze, upload a cleared Qwen voice sample, approve the clone and generate directed narration.",
+      "keywords": ["Breeze API", "cloud", "commercial", "upload", "voice clone", "Qwen"],
+      "related": ["engine-breeze-tts-2", "voice-prompts", "cloud-errors"],
+      "engine_ids": ["breeze_api"]
     },
     {
       "id": "engine-localai-tts",
@@ -522,7 +542,7 @@
     {
       "id": "voice-creation",
       "file": "voices/voice-creation.md",
-      "title": "Create Voices with Qwen3 or OmniVoice",
+      "title": "Create Voices with Qwen3, Breeze, or OmniVoice",
       "summary": "Turn a written voice description into a preview and save the result as a reusable prompt.",
       "keywords": ["voice creation", "Qwen3", "OmniVoice", "design", "instruction", "preview"],
       "related": ["engine-qwen3", "engine-omnivoice", "voice-prompts"]

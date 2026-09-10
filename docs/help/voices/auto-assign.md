@@ -15,11 +15,11 @@ To generate samples for all speakers:
 1. Open [Generate](app:generate) and analyze the prepared text.
 2. Confirm every detected speaker has a useful profile and voice type.
 3. Click **Generate Voices**.
-4. Choose Qwen3-TTS or OmniVoice.
+4. Choose **Qwen3-TTS** or **Breeze TTS 2** as the voice-design engine.
 5. Optionally enter a Name Prefix, such as the book title.
 6. Click **Generate** and allow the sequential batch to finish.
 
-For each speaker, TTS-Story generates a preview, saves it into Voice Prompts, refreshes the prompt list, and attempts to select the newly saved prompt for that speaker. The completion message reports how many voices succeeded.
+For each speaker, TTS-Story uses the saved Voice Design Prompt with the selected engine, generates the requested number of candidates, and saves them into Voice Prompts. A single candidate is assigned automatically; multiple candidates remain available for approval in Speaker Properties. The completion message reports how many voices succeeded.
 
 This operation can be slow and can consume significant GPU resources. Test one voice through [Voice Creation](app:voices) before launching a large batch.
 

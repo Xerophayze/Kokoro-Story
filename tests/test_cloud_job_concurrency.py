@@ -26,7 +26,8 @@ def test_resume_keeps_prior_files_and_offsets_new_cloud_chunk_names():
     source = read("app.py")
 
     assert "resume_prefix_files" in source
-    assert 'engine_kwargs["start_index"] = 0 if has_pause_markers else section_skip' in source
+    assert 'engine_kwargs["start_index"] = 0' in source
+    assert 'render_dir = output_dir / f".tts-render-{uuid.uuid4().hex}"' in source
     assert "return resume_prefix_files + list(audio_files or [])" in source
     assert 'if increment == 0 and pause_flags.get(job_id, False):' in source
     assert source.index("register_chunk(", source.index("def chunk_cb(")) < source.index(

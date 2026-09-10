@@ -61,6 +61,34 @@ def _matched_lines(text: str, headings: List[str]) -> List[str]:
 
 
 class SectionHeadingPatternTests(unittest.TestCase):
+    def test_directed_parts_keep_control_blocks_with_their_speaker(self):
+        from src.text_processor import TextProcessor
+
+        for tag in ("direction", "emotion"):
+            for separator in ("", "\n"):
+                text = "\n".join(
+                    f"[{tag}]Instruction {i}.[/{tag}]\n[narrator]{separator}"
+                    f"Part {i}\nSpoken passage {i}.[/narrator]"
+                    for i in range(1, 5)
+                )
+                sections = split_book_sections(text, ["part"])["sections"]
+                self.assertEqual(4, len(sections))
+                for i, section in enumerate(sections, 1):
+                    segments = TextProcessor().process_text(section["content"])
+                    self.assertEqual(1, len(segments))
+                    self.assertEqual("narrator", segments[0]["speaker"])
+                    self.assertEqual(f"Instruction {i}.", segments[0]["delivery_instruction"])
+                    self.assertNotIn("Instruction", " ".join(segments[0]["chunks"]))
+
+    def test_orphan_directions_are_never_spoken(self):
+        from src.text_processor import TextProcessor
+
+        segments = TextProcessor().process_text(
+            "[narrator]Actual speech.[/narrator]\n"
+            "[direction]This is not speech.[/direction]"
+        )
+        self.assertEqual(["Actual speech."], [s["text"] for s in segments])
+
     def test_symbol_only_custom_heading_is_detected(self) -> None:
         text = "✦ Chapter One\nOpening text.\n\n✦ Chapter Two\nMore text."
 

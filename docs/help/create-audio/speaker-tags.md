@@ -101,6 +101,17 @@ Standalone tags such as `[laugh]` have no closing form and are not treated as sp
 
 See the selected engine's guide, beginning with [Engine Reference and Comparison](help:engine-overview).
 
+## Passage-level delivery directions
+
+Breeze TTS 2 can retain an assigned reference voice while changing how a passage is performed. Put one direction immediately before the speaker block:
+
+```text
+[direction]Begin as a whisper, then become firm and urgent on the final sentence.[/direction]
+[alice]I know what I saw. We have to leave now.[/alice]
+```
+
+TTS-Story also accepts the older `[emotion]...[/emotion]` form. A direction is attached to the following speaker passage, carried into its chunks, saved in review metadata, and reused during regeneration. Other engines may ignore the direction; it is not spoken as manuscript text.
+
 ## Speaker tags created by an LLM
 
 **Prep Text** can add or normalize speaker tags, but an LLM can also change names, omit a close, wrap too much narration, or rewrite the prose. When preparation finishes:

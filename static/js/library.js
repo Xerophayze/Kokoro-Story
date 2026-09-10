@@ -630,6 +630,7 @@ function displayLibraryItems(items) {
                     ${item.chapter_mode ? `<button class="btn btn-secondary btn-xs library-item-meta-action" type="button" onclick="openM4BDownloadModal('${item.job_id}', '${escapeHtml(displayTitle)}')">Download M4B</button>` : ''}
                     <button class="btn btn-secondary btn-xs library-item-meta-action" type="button" onclick="openAudiobookMetadataModal('${item.job_id}')">Edit Metadata</button>
                     <button class="btn btn-secondary btn-xs library-item-meta-action" type="button" onclick="repairLibraryItem('${item.job_id}', this)">Rebuild</button>
+                    ${item.engine === 'breeze_api' ? `<button class="btn btn-secondary btn-xs library-item-meta-action" type="button" onclick="openBreezeProductions('${item.job_id}')">Breeze Voices</button>` : ''}
                     <button class="btn btn-secondary btn-xs library-item-meta-action" type="button" onclick="deleteLibraryItem('${item.job_id}')">Delete</button>
                     <button type="button" class="help-icon library-item-meta-action" data-help-id="audio-library-actions" aria-label="Help: Audio Library Actions">?</button>
                 </div>

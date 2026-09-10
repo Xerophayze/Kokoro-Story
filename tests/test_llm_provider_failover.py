@@ -57,7 +57,7 @@ def test_profile_chain_supports_multiple_models_and_api_keys_for_one_provider():
 def test_retryable_primary_failure_uses_profile_model_and_key(monkeypatch):
     attempts = []
 
-    def fake_run(prompt, config, provider, model_override=None, api_key_override=None):
+    def fake_run(prompt, config, provider, model_override=None, api_key_override=None, **_kwargs):
         attempts.append((provider, model_override, api_key_override))
         if len(attempts) == 1:
             raise GeminiProcessorError("Gemini API error: 429 RESOURCE_EXHAUSTED")
@@ -99,7 +99,7 @@ def test_retryable_primary_failure_uses_profile_model_and_key(monkeypatch):
 def test_configuration_failure_does_not_silently_switch_profile(monkeypatch):
     attempts = []
 
-    def fake_run(prompt, config, provider, model_override=None, api_key_override=None):
+    def fake_run(prompt, config, provider, model_override=None, api_key_override=None, **_kwargs):
         attempts.append(provider)
         raise GeminiProcessorError("Gemini API key not configured")
 
@@ -124,7 +124,7 @@ def test_configuration_failure_does_not_silently_switch_profile(monkeypatch):
 def test_preferred_profile_skips_earlier_failures_for_remaining_sections(monkeypatch):
     attempts = []
 
-    def fake_run(prompt, config, provider, model_override=None, api_key_override=None):
+    def fake_run(prompt, config, provider, model_override=None, api_key_override=None, **_kwargs):
         attempts.append((provider, model_override))
         return "next section"
 
@@ -150,7 +150,7 @@ def test_preferred_profile_skips_earlier_failures_for_remaining_sections(monkeyp
 def test_high_demand_retries_current_profile_before_advancing(monkeypatch):
     attempts = []
 
-    def fake_run(prompt, config, provider, model_override=None, api_key_override=None):
+    def fake_run(prompt, config, provider, model_override=None, api_key_override=None, **_kwargs):
         attempts.append((provider, model_override))
         raise GeminiProcessorError("Gemini API error: 503 model overloaded due to high demand")
 
@@ -180,7 +180,7 @@ def test_high_demand_retries_current_profile_before_advancing(monkeypatch):
 def test_explicit_quota_exhaustion_advances_without_same_profile_retry(monkeypatch):
     attempts = []
 
-    def fake_run(prompt, config, provider, model_override=None, api_key_override=None):
+    def fake_run(prompt, config, provider, model_override=None, api_key_override=None, **_kwargs):
         attempts.append((provider, model_override))
         if model_override == "gemini-primary":
             raise GeminiProcessorError("429 RESOURCE_EXHAUSTED: quota exceeded; please try again later")
@@ -230,7 +230,7 @@ def test_daily_profile_limit_skips_to_next_backup_and_stores_no_key(monkeypatch,
     monkeypatch.setattr(app_module, "LLM_PROFILE_USAGE_FILE", usage_file)
     attempts = []
 
-    def fake_run(prompt, config, provider, model_override=None, api_key_override=None):
+    def fake_run(prompt, config, provider, model_override=None, api_key_override=None, **_kwargs):
         attempts.append((model_override, api_key_override))
         if model_override == "gemini-primary":
             raise GeminiProcessorError("429 RESOURCE_EXHAUSTED: quota exceeded")

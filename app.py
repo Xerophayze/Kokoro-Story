@@ -1,7 +1,7 @@
 """
 TTS-Story - Web-based TTS application
 """
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, Response, abort
 from flask_cors import CORS
 import base64
 import asyncio
@@ -34,7 +34,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
@@ -154,6 +154,8 @@ from src.engines.openai_tts_engine import (
     OPENAI_TTS_VOICES,
 )
 from src.engines.localai_tts_engine import DEFAULT_LOCALAI_TTS_BASE_URL, LocalAITTSEngine
+from src.engines.breeze_api_engine import BreezeAPIEngine, BreezeAPIError
+from src.breeze_productions import BreezeProductions, ProductionError
 from src.localai_tts_client import LocalAITTSDiscoveryError, discover_localai_tts_catalog
 from src.localai_voice_profiles import (
     LocalAIVoiceProfileManager,
@@ -201,6 +203,7 @@ JOBS_DB_PATH = JOBS_DATA_DIR / "jobs.db"
 JOBS_DATA_DIR.mkdir(parents=True, exist_ok=True)
 JOBS_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 VOICE_PROMPT_DIR = Path("data/voice_prompts")
+BREEZE_PRODUCTIONS = BreezeProductions(Path(__file__).resolve().parent / 'data/breeze_productions', VOICE_PROMPT_DIR)
 VOICE_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
 VOICE_PROMPT_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
 CHATTERBOX_VOICE_REGISTRY = Path("data/chatterbox_voices.json")
@@ -232,6 +235,7 @@ ENGINE_INSTALL_GENERATION_IDS = {
     "dots_tts": {"dots_tts"},
     "edge_tts": {"edge_tts"},
     "audio8_tts": {"audio8_tts"},
+    "breeze_tts_2": {"breeze_tts_2"},
 }
 PROJECTS_LOCK = threading.RLock()
 JOB_METADATA_FILENAME = "metadata.json"
@@ -335,6 +339,15 @@ DEFAULT_CONFIG = {
     "openai_tts_max_parallel": 2,
     "openai_tts_chunk_size": 4000,
     "localai_tts_api_key": "",
+    "breeze_api_key": "",
+    "breeze_api_model": "breeze-tts-2",
+    "breeze_api_default_voice": "",
+    "breeze_api_instructions": "",
+    "breeze_api_timeout": 180,
+    "breeze_api_max_parallel": 1,
+    "breeze_api_max_retries": 2,
+    "breeze_api_guidance_scale": 4.0,
+    "breeze_api_chunk_size": 1000,
     "localai_tts_base_url": DEFAULT_LOCALAI_TTS_BASE_URL,
     "localai_tts_model": "",
     "localai_tts_default_voice": "",
@@ -357,6 +370,20 @@ DEFAULT_CONFIG = {
     "audio8_tts_default_prompt_text": "",
     "audio8_tts_chunk_size": 140,
     "audio8_tts_hard_chunk_size": 400,
+    "breeze_tts_2_model_id": "BreezeBlue/Breeze-TTS-2",
+    "breeze_tts_2_runtime": "pytorch",
+    "breeze_tts_2_device": "auto",
+    "breeze_tts_2_seed": 42,
+    "breeze_tts_2_clone_cfg_scale": 1.0,
+    "breeze_tts_2_design_cfg_scale": 4.0,
+    "breeze_tts_2_direction_cfg_scale": 4.0,
+    "breeze_tts_2_max_new_tokens": 1500,
+    "breeze_tts_2_max_seq_len": 2048,
+    "breeze_tts_2_fast_mode": False,
+    "breeze_tts_2_default_prompt": "",
+    "breeze_tts_2_default_prompt_text": "",
+    "breeze_tts_2_default_instruction": "Speak clearly and naturally.",
+    "breeze_tts_2_chunk_size": 500,
     "localai_tts_voice_profile_consent_confirmed": False,
     "cloud_tts_concurrent_jobs": 2,
     "llm_local_provider": LLM_PROVIDER_LMSTUDIO,
@@ -492,6 +519,7 @@ SECRET_CONFIG_KEYS = {
     "elevenlabs_api_key",
     "openai_tts_api_key",
     "localai_tts_api_key",
+    "breeze_api_key",
     "huggingface_token",
     "remote_engine_management_token",
 }
@@ -580,6 +608,15 @@ AUDIO8_TTS_SETTING_KEYS = {
     "audio8_tts_max_new_tokens", "audio8_tts_retry_max_new_tokens",
     "audio8_tts_seed", "audio8_tts_default_prompt",
     "audio8_tts_default_prompt_text", "audio8_tts_chunk_size", "audio8_tts_hard_chunk_size",
+}
+BREEZE_TTS_2_SETTING_KEYS = {
+    "breeze_tts_2_runtime",
+    "breeze_tts_2_model_id", "breeze_tts_2_device", "breeze_tts_2_seed",
+    "breeze_tts_2_clone_cfg_scale", "breeze_tts_2_design_cfg_scale",
+    "breeze_tts_2_direction_cfg_scale", "breeze_tts_2_max_new_tokens",
+    "breeze_tts_2_max_seq_len", "breeze_tts_2_fast_mode",
+    "breeze_tts_2_default_prompt", "breeze_tts_2_default_prompt_text",
+    "breeze_tts_2_default_instruction", "breeze_tts_2_chunk_size",
 }
 CHATTERBOX_TURBO_LOCAL_OPTION_ALIASES = {
     "default_prompt": "chatterbox_turbo_local_default_prompt",
@@ -814,6 +851,8 @@ def _normalize_engine_options(engine_name: str, options: Dict[str, Any]) -> Dict
         return _normalize_dots_tts_options(options)
     if engine_name == "audio8_tts":
         return _normalize_audio8_tts_options(options)
+    if engine_name == "breeze_tts_2":
+        return _normalize_breeze_tts_2_options(options)
     return {}
 
 
@@ -850,6 +889,43 @@ def _normalize_audio8_tts_options(options: Dict[str, Any]) -> Dict[str, Any]:
         hard_limit = int(result.get("audio8_tts_hard_chunk_size", DEFAULT_CONFIG["audio8_tts_hard_chunk_size"]))
         result["audio8_tts_hard_chunk_size"] = max(soft_limit, hard_limit)
     return result
+
+
+def _normalize_breeze_tts_2_options(options: Dict[str, Any]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    for raw_key, value in (options or {}).items():
+        key = str(raw_key or "").strip().lower()
+        if key not in BREEZE_TTS_2_SETTING_KEYS:
+            continue
+        if key == "breeze_tts_2_runtime":
+            result[key] = value if isinstance(value, str) and value in {"pytorch", "q8"} else "pytorch"
+        elif key == "breeze_tts_2_fast_mode":
+            result[key] = _coerce_bool(value)
+        elif key in {
+            "breeze_tts_2_clone_cfg_scale", "breeze_tts_2_design_cfg_scale",
+            "breeze_tts_2_direction_cfg_scale",
+        }:
+            result[key] = _coerce_float(value, minimum=0.1, maximum=10.0,
+                                        fallback=float(DEFAULT_CONFIG[key]))
+        elif key == "breeze_tts_2_seed":
+            result[key] = _coerce_int(value, minimum=0, maximum=2147483647, fallback=42)
+        elif key == "breeze_tts_2_max_new_tokens":
+            result[key] = _coerce_int(value, minimum=64, maximum=3000, fallback=1500)
+        elif key == "breeze_tts_2_max_seq_len":
+            result[key] = _coerce_int(value, minimum=512, maximum=4096, fallback=2048)
+        elif key == "breeze_tts_2_chunk_size":
+            result[key] = _coerce_int(value, minimum=100, maximum=1500, fallback=500)
+        else:
+            result[key] = str(value or "").strip()
+    return result
+
+
+def _breeze_runtime_ready(config=None):
+    from src.engines.isolated_proxy import breeze_runtime_available
+    # Keep the app-level availability check for install/uninstall state.
+    if not isolated_engine_available('breeze_tts_2'):
+        return False
+    return breeze_runtime_available((config if config is not None else load_config()).get('breeze_tts_2_runtime', 'pytorch'))
 
 
 def _normalize_chatterbox_turbo_local_options(options: Dict[str, Any]) -> Dict[str, Any]:
@@ -1338,6 +1414,7 @@ cloud_job_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="cloud
 cloud_job_condition = threading.Condition()
 active_cloud_jobs = 0
 CLOUD_TTS_ENGINES = {
+    "breeze_api",
     "kokoro_replicate",
     "chatterbox_turbo_replicate",
     "azure_speech",
@@ -1367,6 +1444,10 @@ qwen3_voice_design_generation_count = 0
 qwen3_voice_design_process = None
 qwen3_voice_design_log_handle = None
 qwen3_voice_design_process_lock = threading.Lock()
+breeze_voice_design_process = None
+breeze_voice_design_log_handle = None
+breeze_voice_design_process_lock = threading.Lock()
+gpu_generation_lifecycle_lock = threading.RLock()
 library_cache = {
     "items": None,
     "timestamp": 0.0,
@@ -1414,6 +1495,8 @@ def _voice_label_from_assignment(assignment: Optional[Dict[str, Any]]) -> Option
         return None
     if assignment.get("voice"):
         return assignment.get("voice")
+    if (assignment.get('extra') or {}).get('breeze_sample_name'):
+        return assignment['extra']['breeze_sample_name']
     # Check for audio_prompt_path (Chatterbox uses this)
     prompt = assignment.get("audio_prompt_path")
     if isinstance(prompt, str) and prompt:
@@ -1489,43 +1572,8 @@ def _check_speaker_tag_balance(text: str) -> List[str]:
     - Closing tags with no matching open: [/narrator] at the start
     - Mismatched nesting: [narrator] ... [/sola]
     """
-    open_re = re.compile(r'\[([a-zA-Z0-9_\-]+)\]')
-    close_re = re.compile(r'\[/([a-zA-Z0-9_\-]+)\]')
-    reserved = {"default"}
-
-    # Only tags that appear in a closing [/tag] form are speaker tags.
-    # Self-closing tags like [laugh] or [grunt] are paralinguistic and must be ignored.
-    closed_tags = {m.group(1).lower() for m in close_re.finditer(text)}
-
-    events: List[tuple] = []
-    for m in open_re.finditer(text):
-        tag = m.group(1).lower()
-        if tag not in reserved and tag in closed_tags:
-            events.append((m.start(), "open", tag))
-    for m in close_re.finditer(text):
-        tag = m.group(1).lower()
-        if tag not in reserved:
-            events.append((m.start(), "close", tag))
-    events.sort(key=lambda e: e[0])
-
-    errors: List[str] = []
-    stack: List[str] = []
-    for _pos, kind, tag in events:
-        if kind == "open":
-            stack.append(tag)
-        else:
-            if not stack:
-                errors.append(f"Closing tag [/{tag}] has no matching opening tag")
-            elif stack[-1] != tag:
-                errors.append(
-                    f"Mismatched tags: expected [/{stack[-1]}] but found [/{tag}]"
-                )
-                stack.pop()
-            else:
-                stack.pop()
-    for unclosed in stack:
-        errors.append(f"Opening tag [{unclosed}] has no matching closing tag")
-    return errors
+    from src.tag_validation import tag_errors
+    return tag_errors(text)
 
 
 def _validate_voice_assignments_for_engine(
@@ -1536,17 +1584,13 @@ def _validate_voice_assignments_for_engine(
 ) -> None:
     engine_name = _normalize_engine_name(engine_name)
 
-    # Check for unbalanced/orphaned speaker tags before anything else.
-    # Only run when the text actually contains speaker tags to avoid
-    # false positives on plain text submissions.
-    processor = TextProcessor()
-    if processor.has_speaker_tags(text):
-        tag_errors = _check_speaker_tag_balance(text)
-        if tag_errors:
-            raise ValueError(
-                "Speaker tags are unbalanced — please fix the text before submitting.\n"
-                + "\n".join(f"  • {e}" for e in tag_errors)
-            )
+    # Run independently of detected speaker count, including orphan control tags.
+    tag_errors = _check_speaker_tag_balance(text)
+    if tag_errors:
+        raise ValueError(
+            "Speaker/direction tags are unbalanced — please fix the text before submitting.\n"
+            + "\n".join(f"  • {e}" for e in tag_errors)
+        )
 
     speakers = _extract_speakers_for_text(text)
     normalized_assignments = _normalize_voice_assignments_map(voice_assignments)
@@ -1588,6 +1632,9 @@ def _validate_voice_assignments_for_engine(
             # A LocalAI model may provide its own default voice. Voice-profile
             # selection remains optional for compatibility with those models.
             pass
+
+        if engine_name == "breeze_api" and not prompt and not voice and not config.get("breeze_api_default_voice"):
+            missing_voices.append(speaker)
 
         if engine_name == "chatterbox_turbo_replicate":
             default_voice = (config.get("chatterbox_turbo_replicate_voice") or "").strip()
@@ -1749,8 +1796,14 @@ def _perform_chunk_regeneration(
             "speaker": speaker,
             "text": " ".join(spoken_parts),
             "chunks": spoken_parts,
+            "emotion": chunk.get("emotion"),
+            "delivery_instruction": chunk.get("delivery_instruction") or chunk.get("emotion"),
         }] if spoken_parts else []
         engine_name = _normalize_engine_name(config_snapshot.get("tts_engine"))
+
+        if engine_name == 'breeze_api':
+            # Keep review regeneration bound to its production snapshot.
+            voice_config = BREEZE_PRODUCTIONS.bind(job_id, voice_config)
 
         if spoken_parts:
             # Acquire GPU lock to prevent concurrent inference which causes
@@ -2462,7 +2515,8 @@ def _run_isolated_qwen_voice_design(request_payload: Dict[str, Any]) -> Dict[str
     worker = Path(__file__).resolve().parent / "engines" / "qwen3_voice_design_worker.py"
     if not python.is_file() or not worker.is_file():
         raise ImportError("Qwen3-TTS isolated runtime is not installed.")
-    with qwen3_voice_design_process_lock:
+    with gpu_generation_lifecycle_lock, qwen3_voice_design_process_lock:
+        _release_cached_narration_engines()
         if qwen3_voice_design_process is None or qwen3_voice_design_process.poll() is not None:
             log_path = Path(__file__).resolve().parent / "data" / "qwen3-voice-design-worker.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2496,7 +2550,58 @@ def _run_isolated_qwen_voice_design(request_payload: Dict[str, Any]) -> Dict[str
         raise RuntimeError("Qwen3 VoiceDesign worker stopped without returning a result.")
 
 
+def _run_isolated_breeze_voice_design(request_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Run Breeze casting in its persistent isolated process and keep the model warm."""
+    global breeze_voice_design_process, breeze_voice_design_log_handle
+    python = Path(__file__).resolve().parent / "engines" / "breeze_tts_2" / ".venv" / (
+        "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    )
+    worker = Path(__file__).resolve().parent / "engines" / "breeze_voice_design_worker.py"
+    if not python.is_file() or not worker.is_file() or not isolated_engine_available("breeze_tts_2"):
+        raise ImportError("Breeze TTS 2 isolated runtime is not installed.")
+    license_marker = Path(__file__).resolve().parent / "engines" / "breeze_tts_2" / ".license_accepted"
+    if not license_marker.is_file():
+        raise PermissionError(
+            "Accept the BreezeBlue Research and Non-Commercial License in Breeze TTS 2 settings first."
+        )
+    with gpu_generation_lifecycle_lock, breeze_voice_design_process_lock:
+        _release_cached_narration_engines()
+        if breeze_voice_design_process is None or breeze_voice_design_process.poll() is not None:
+            log_path = Path(__file__).resolve().parent / "data" / "breeze-voice-design-worker.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            if breeze_voice_design_log_handle:
+                breeze_voice_design_log_handle.close()
+            breeze_voice_design_log_handle = log_path.open("a", encoding="utf-8", errors="replace")
+            breeze_voice_design_process = subprocess.Popen(
+                [str(python), "-u", str(worker)],
+                cwd=str(Path(__file__).resolve().parent),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=breeze_voice_design_log_handle,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+        process = breeze_voice_design_process
+        process.stdin.write(json.dumps(request_payload, ensure_ascii=False) + "\n")
+        process.stdin.flush()
+        request_id = request_payload["id"]
+        for line in process.stdout:
+            if not line.startswith("TTS_STORY_BREEZE_RESULT "):
+                continue
+            response = json.loads(line[len("TTS_STORY_BREEZE_RESULT "):])
+            if response.get("id") != request_id:
+                continue
+            if not response.get("success"):
+                raise RuntimeError(response.get("error") or "Breeze voice-design worker failed")
+            return response
+        raise RuntimeError("Breeze voice-design worker stopped without returning a result.")
+
+
 def _engine_signature(engine_name: str, config: Dict) -> str:
+    if engine_name == "breeze_api":
+        return "breeze_api::" + hashlib.sha256(json.dumps({k: v for k, v in config.items() if k.startswith("breeze_api_")}, sort_keys=True).encode()).hexdigest()
     """Generate a signature capturing settings that require a fresh engine."""
     config = config or {}
     if engine_name == "chatterbox_turbo_local":
@@ -2587,6 +2692,17 @@ def _engine_signature(engine_name: str, config: Dict) -> str:
             "audio8_tts_max_new_tokens", "audio8_tts_retry_max_new_tokens",
             "audio8_tts_seed", "audio8_tts_default_prompt", "audio8_tts_default_prompt_text",
             "audio8_tts_chunk_size", "audio8_tts_hard_chunk_size",
+        ))
+        return f"{engine_name}::{'|'.join(parts)}"
+    if engine_name == "breeze_tts_2":
+        parts = tuple(str(config.get(key, "")) for key in (
+            "breeze_tts_2_runtime",
+            "breeze_tts_2_model_id", "breeze_tts_2_device", "breeze_tts_2_seed",
+            "breeze_tts_2_clone_cfg_scale", "breeze_tts_2_design_cfg_scale",
+            "breeze_tts_2_direction_cfg_scale", "breeze_tts_2_max_new_tokens",
+            "breeze_tts_2_max_seq_len", "breeze_tts_2_fast_mode",
+            "breeze_tts_2_default_prompt", "breeze_tts_2_default_prompt_text",
+            "breeze_tts_2_default_instruction", "breeze_tts_2_chunk_size",
         ))
         return f"{engine_name}::{'|'.join(parts)}"
     if engine_name == "dots_tts":
@@ -2696,6 +2812,16 @@ def _engine_signature(engine_name: str, config: Dict) -> str:
 
 
 def _create_engine(engine_name: str, config: Dict) -> TtsEngineBase:
+    if engine_name == "breeze_api":
+        return BreezeAPIEngine(
+            config.get("breeze_api_key", ""), model_id=config.get("breeze_api_model") or "breeze-tts-2",
+            default_voice=config.get("breeze_api_default_voice") or "",
+            instructions=config.get("breeze_api_instructions") or "",
+            timeout=config.get("breeze_api_timeout", 180),
+            max_parallel=config.get("breeze_api_max_parallel", 1),
+            max_retries=config.get("breeze_api_max_retries", 2),
+            guidance_scale=config.get("breeze_api_guidance_scale", 4),
+            productions=BREEZE_PRODUCTIONS, production_progress=_breeze_production_progress)
     """Instantiate a specific engine with configuration-derived options."""
     config = config or {}
     if engine_name == "kokoro":
@@ -2814,6 +2940,31 @@ def _create_engine(engine_name: str, config: Dict) -> TtsEngineBase:
             seed=int(config.get("audio8_tts_seed") if config.get("audio8_tts_seed") is not None else 42),
             default_prompt=(config.get("audio8_tts_default_prompt") or "").strip() or None,
             default_prompt_text=(config.get("audio8_tts_default_prompt_text") or "").strip() or None,
+        )
+
+    if engine_name == "breeze_tts_2":
+        if not _breeze_runtime_ready(config):
+            raise ImportError("The selected Breeze runtime is not installed. Install it in Settings → Breeze TTS 2, or select the installed runtime and save Settings.")
+        license_marker = Path(__file__).resolve().parent / "engines" / "breeze_tts_2" / ".license_accepted"
+        if not license_marker.is_file():
+            raise PermissionError(
+                "Breeze TTS 2 requires acceptance of its Research and Non-Commercial License in Settings."
+            )
+        return get_engine(
+            "breeze_tts_2",
+            runtime=config.get("breeze_tts_2_runtime") or "pytorch",
+            device=(config.get("breeze_tts_2_device") or "auto").strip(),
+            model_id=(config.get("breeze_tts_2_model_id") or "BreezeBlue/Breeze-TTS-2").strip(),
+            seed=int(config.get("breeze_tts_2_seed") if config.get("breeze_tts_2_seed") is not None else 42),
+            clone_cfg_scale=float(config.get("breeze_tts_2_clone_cfg_scale") or 1.0),
+            design_cfg_scale=float(config.get("breeze_tts_2_design_cfg_scale") or 4.0),
+            direction_cfg_scale=float(config.get("breeze_tts_2_direction_cfg_scale") or 4.0),
+            max_new_tokens=int(config.get("breeze_tts_2_max_new_tokens") or 1500),
+            max_seq_len=int(config.get("breeze_tts_2_max_seq_len") or 2048),
+            fast_mode=bool(config.get("breeze_tts_2_fast_mode", False)),
+            default_prompt=(config.get("breeze_tts_2_default_prompt") or "").strip() or None,
+            default_prompt_text=(config.get("breeze_tts_2_default_prompt_text") or "").strip() or None,
+            default_instruction=(config.get("breeze_tts_2_default_instruction") or "Speak clearly and naturally.").strip(),
         )
 
     if engine_name == "omnivoice_clone":
@@ -3277,7 +3428,27 @@ def _build_sections_from_matches(
             sections.append({"title": "Full Story", "content": clean_text})
         return sections
 
-    first_start = matches[0].start()
+    # A delivery instruction belongs to the heading's speaker, not to the
+    # preceding section. Regex matches may start at [/direction] or [narrator],
+    # so normalize boundaries before slicing either adjacent section.
+    boundaries = []
+    for match in matches:
+        start = match.start()
+        prefix = re.match(r'(?:\s*\[/[a-zA-Z0-9_\-]+\]\s*)+', text[start:])
+        if prefix:
+            start += prefix.end()
+        opening = re.search(r'\[([a-zA-Z0-9_\-]+)\]\s*$', text[:start])
+        if opening:
+            start = opening.start()
+        instruction = re.search(
+            r'\[(direction|emotion)\](?:(?!\[/?(?:direction|emotion)\]).)*'
+            r'\[/\1\]\s*$', text[:start], re.DOTALL | re.IGNORECASE,
+        )
+        if instruction:
+            start = instruction.start()
+        boundaries.append(start)
+
+    first_start = boundaries[0]
     if first_start > 0:
         pre_content = text[:first_start].strip()
         if pre_content:
@@ -3293,8 +3464,8 @@ def _build_sections_from_matches(
     _lone_open_tag_re = re.compile(r'\[([a-zA-Z0-9_\-]+)\]\s*$')
 
     for idx, match in enumerate(matches):
-        start = match.start()
-        raw_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        start = boundaries[idx]
+        raw_end = boundaries[idx + 1] if idx + 1 < len(matches) else len(text)
 
         # The chapter-heading regex allows optional tag prefixes like [/narrator]\n\n[narrator]
         # before the heading keyword. When the next match begins with a closing speaker tag
@@ -3795,6 +3966,10 @@ def _is_retryable_llm_error(exc: Exception) -> bool:
 
 def _llm_error_action(exc: Exception) -> str:
     """Return stop, retry_profile, or advance_profile for a provider failure."""
+    if getattr(exc, 'retries_exhausted', False):
+        # OpenRouter already performed its bounded retries; do not multiply
+        # them by the browser's per-section retry loop before failover.
+        return "advance_profile"
     if not _is_retryable_llm_error(exc):
         return "stop"
     message = str(exc or "").lower()
@@ -3841,10 +4016,21 @@ def _run_llm_prompt_for_provider(
     provider: str,
     model_override: Optional[str] = None,
     api_key_override: Optional[str] = None,
+    response_schema=None,
+    response_schema_name=None,
+    response_schema_strict=True,
+    before_retry=None,
 ) -> str:
     """Run one prompt through one explicitly selected provider."""
     model_override = str(model_override or "").strip()
     api_key_override = str(api_key_override or "").strip()
+    if response_schema is not None:
+        from src.structured_output import validate_schema, StructuredOutputError
+        validate_schema(response_schema, response_schema_name, response_schema_strict)
+        if provider != "openrouter":
+            raise StructuredOutputError(
+                f"Provider '{provider}' does not support this structured-output path; "
+                "choose an OpenRouter profile. The schema was not dropped.")
     if provider == "gemini":
         api_key = api_key_override or (config.get("gemini_api_key") or "").strip()
         if not api_key:
@@ -3886,7 +4072,13 @@ def _run_llm_prompt_for_provider(
             repetition_penalty=config.get("llm_local_repeat_penalty"),
             max_tokens=config.get("llm_local_max_tokens"),
             disable_reasoning=bool(config.get("llm_local_disable_reasoning", False)),
+            before_retry=before_retry,
         )
+        if response_schema is not None:
+            return processor.generate_text(
+                prompt, response_schema=response_schema,
+                response_schema_name=response_schema_name,
+                response_schema_strict=response_schema_strict)
         return processor.generate_text(prompt)
 
     if provider != "local":
@@ -3925,6 +4117,9 @@ def _run_llm_prompt_with_failover(
     config: Dict[str, Any],
     preferred_profile: Optional[str] = None,
     defer_transient_failover: bool = False,
+    response_schema=None,
+    response_schema_name=None,
+    response_schema_strict=True,
 ) -> tuple[str, Dict[str, Any], List[Dict[str, Any]]]:
     """Run a prompt through the configured profile chain.
 
@@ -3932,6 +4127,13 @@ def _run_llm_prompt_with_failover(
     later section does not repeatedly consume time against a provider already
     known to be unavailable for that run.
     """
+    structured_options = {}
+    if response_schema is not None:
+        from src.structured_output import validate_schema
+        validate_schema(response_schema, response_schema_name, response_schema_strict)
+        structured_options = dict(response_schema=response_schema,
+                                  response_schema_name=response_schema_name,
+                                  response_schema_strict=response_schema_strict)
     profiles = _resolve_llm_profile_chain(config)
     preferred = str(preferred_profile or "").strip()
     preferred_index = next(
@@ -3944,6 +4146,14 @@ def _run_llm_prompt_with_failover(
     failures: List[Dict[str, Any]] = []
     for index, profile in enumerate(profiles):
         provider = profile["provider"]
+        if response_schema is not None and provider != "openrouter":
+            failures.append({
+                "profile_id": profile["id"], "profile_name": profile["name"],
+                "provider": provider, "model": profile.get("model") or "",
+                "error": "Profile cannot honor the requested JSON schema; skipped without an API request",
+                "failure_kind": "unsupported_structured_output",
+            })
+            continue
         allowed, used, limit = _reserve_llm_profile_request(profile)
         if not allowed:
             failures.append({
@@ -3971,6 +4181,15 @@ def _run_llm_prompt_with_failover(
                 f"LLM provider chain stopped ({summary})",
                 retryable=False,
             )
+        def reserve_retry():
+            retry_allowed, retry_used, retry_limit = _reserve_llm_profile_request(profile)
+            if not retry_allowed:
+                limit_error = OpenRouterProcessorError(
+                    f"Daily request limit reached ({retry_used}/{retry_limit}); retry was not submitted")
+                limit_error.retries_exhausted = True
+                raise limit_error
+
+        retry_options = {'before_retry': reserve_retry} if provider == 'openrouter' else {}
         try:
             result = _run_llm_prompt_for_provider(
                 prompt,
@@ -3978,6 +4197,8 @@ def _run_llm_prompt_with_failover(
                 provider,
                 model_override=profile.get("model"),
                 api_key_override=profile.get("api_key"),
+                **structured_options,
+                **retry_options,
             )
             return result, _public_llm_profile(profile), failures
         except (GeminiProcessorError, LocalLLMProcessorError, AtlasCloudProcessorError, OpenRouterProcessorError) as exc:
@@ -4016,12 +4237,16 @@ def _run_llm_prompt_with_failover(
                 exc,
             )
 
+    if response_schema is not None:
+        from src.structured_output import StructuredOutputError
+        raise StructuredOutputError("No compatible structured-output profile succeeded. " +
+                                    "; ".join(f"{f['profile_name']}: {f['error']}" for f in failures))
     raise LLMProviderChainError("No LLM providers are configured")
 
 
-def _run_llm_prompt(prompt: str, config: Dict[str, Any]) -> str:
+def _run_llm_prompt(prompt: str, config: Dict[str, Any], **structured_options) -> str:
     """Run a prompt through the configured primary and backup providers."""
-    result, _profile, _failures = _run_llm_prompt_with_failover(prompt, config)
+    result, _profile, _failures = _run_llm_prompt_with_failover(prompt, config, **structured_options)
     return result
 
 
@@ -4311,6 +4536,10 @@ def _is_chatterbox_engine(engine_name: str) -> bool:
 
 
 def _create_text_processor_for_engine(engine_name: str, chunk_size: int, config: Optional[Dict] = None) -> TextProcessor:
+    if _normalize_engine_name(engine_name) == "breeze_api":
+        limit = max(120, min(4000, int((config or {}).get("breeze_api_chunk_size", 1000))))
+        return TextProcessor(chunk_strategy="characters", char_soft_limit=limit,
+                             char_hard_limit=limit + 150, allow_sentence_overflow=True)
     if _is_chatterbox_engine(engine_name):
         # Use configurable chunk size for Chatterbox, default 450
         chatterbox_chunk_size = 450
@@ -4453,6 +4682,15 @@ def _create_text_processor_for_engine(engine_name: str, chunk_size: int, config:
             char_hard_limit=audio8_hard_limit,
             allow_sentence_overflow=False,
         )
+    if _normalize_engine_name(engine_name) == "breeze_tts_2":
+        breeze_chunk_size = int((config or {}).get("breeze_tts_2_chunk_size", 500))
+        breeze_chunk_size = max(120, min(900, breeze_chunk_size))
+        return TextProcessor(
+            chunk_strategy="characters",
+            char_soft_limit=breeze_chunk_size,
+            char_hard_limit=min(1000, breeze_chunk_size + 150),
+            allow_sentence_overflow=True,
+        )
     return TextProcessor(chunk_size=chunk_size)
 
 
@@ -4543,7 +4781,8 @@ def _run_queued_job(job_data: Dict[str, Any], *, cloud_slot: bool = False) -> No
             current_job_ids.add(job_id)
             current_job_id = job_id
             job_entry["status"] = "processing"
-            job_entry["started_at"] = datetime.now().isoformat()
+            if not job_entry.get("started_at"):
+                job_entry["started_at"] = datetime.now().isoformat()
         _persist_job_state(job_id)
         logger.info("Processing job %s%s", job_id, " in a cloud slot" if cloud_slot else "")
 
@@ -4554,6 +4793,10 @@ def _run_queued_job(job_data: Dict[str, Any], *, cloud_slot: bool = False) -> No
             elif job_type == "qwen3_voice_design_preview":
                 process_qwen3_voice_design_preview_task(job_data)
             elif job_type == "qwen3_voice_design_save":
+                process_qwen3_voice_design_save_task(job_data)
+            elif job_type == "breeze_voice_design_preview":
+                process_breeze_voice_design_preview_task(job_data)
+            elif job_type == "breeze_voice_design_save":
                 process_qwen3_voice_design_save_task(job_data)
             elif job_type == "omnivoice_design_preview":
                 process_omnivoice_design_preview_task(job_data)
@@ -4664,7 +4907,57 @@ def _apply_word_replacements(text: str, replacements: list) -> str:
 
 
 
+def _release_cached_narration_engines():
+    """Free narration models before casting; caller owns the GPU lifecycle lock."""
+    with tts_engine_lock:
+        for name, engine in list(tts_engine_instances.items()):
+            engine.cleanup()
+            tts_engine_instances.pop(name, None)
+            engine_config_signatures.pop(name, None)
+
+
+def _release_voice_design_memory():
+    """Wait for casting to finish, then stop its persistent model workers."""
+    global qwen3_voice_design_process, breeze_voice_design_process
+    global qwen3_voice_design_log_handle, breeze_voice_design_log_handle
+    global qwen3_voice_design_model, qwen3_voice_design_signature
+    from src.process_lifecycle import stop_owned_worker
+
+    with gpu_generation_lifecycle_lock:
+        with qwen3_voice_design_process_lock:
+            stop_owned_worker(qwen3_voice_design_process)
+            qwen3_voice_design_process = None
+            if qwen3_voice_design_log_handle:
+                qwen3_voice_design_log_handle.close()
+                qwen3_voice_design_log_handle = None
+        with breeze_voice_design_process_lock:
+            stop_owned_worker(breeze_voice_design_process)
+            breeze_voice_design_process = None
+            if breeze_voice_design_log_handle:
+                breeze_voice_design_log_handle.close()
+                breeze_voice_design_log_handle = None
+        with tts_engine_lock:
+            qwen3_voice_design_model = None
+            qwen3_voice_design_signature = None
+        gc.collect()
+        # Only clear a CUDA context that the main process already initialized.
+        torch_module = sys.modules.get("torch")
+        if torch_module is not None and torch_module.cuda.is_initialized():
+            torch_module.cuda.empty_cache()
+        logger.info("Voice-design workers released; GPU memory cleanup complete before narration")
+
+
 def process_audio_job(job_data):
+    engine_name = _normalize_engine_name((job_data.get("config") or {}).get("tts_engine"))
+    if engine_name in CLOUD_TTS_ENGINES:
+        return _process_audio_job(job_data)
+    logger.info("Job %s: waiting for GPU access and preparing narration memory", job_data.get("job_id"))
+    with gpu_generation_lifecycle_lock:
+        _release_voice_design_memory()
+        return _process_audio_job(job_data)
+
+
+def _process_audio_job(job_data):
     """Process a single audio generation job"""
     job_id = job_data['job_id']
     text = job_data['text']
@@ -4723,25 +5016,10 @@ def process_audio_job(job_data):
         job_start_time = datetime.now()
         cancel_event = cancel_events.setdefault(job_id, threading.Event())
         remaining_skip = processed_chunks
-        _chunk_done_ts: List[float] = []  # monotonic timestamp when each chunk completed
-
-        # Restore historical chunk_times and elapsed seconds from prior run(s) so pause/resume
-        # preserves cumulative metrics across all segments of a job.
-        _prior_chunk_times: List[float] = []
-        _prior_elapsed_seconds: float = 0.0
+        from src.job_timing import JobTiming
         with queue_lock:
             _prior_tm = (jobs.get(job_id) or {}).get("timing_metrics") or {}
-            _prior_chunk_times = _prior_tm.get("chunk_times") or []
-            _prior_elapsed_seconds = float(_prior_tm.get("total_seconds") or 0.0)
-        if _prior_chunk_times and resume_from_chunk_index > 0:
-            _synthetic_base = time.monotonic()
-            _offset = 0.0
-            for _dt in _prior_chunk_times:
-                _offset += max(0.0, float(_dt))
-                _chunk_done_ts.append(_synthetic_base - (sum(_prior_chunk_times) - _offset))
-            # Shift all timestamps so the last one is just before now
-            _shift = time.monotonic() - _chunk_done_ts[-1] - 0.001
-            _chunk_done_ts = [t + _shift for t in _chunk_done_ts]
+        timing = JobTiming(_prior_tm, processed_chunks)
 
         with queue_lock:
             job_entry = jobs.get(job_id)
@@ -4765,34 +5043,11 @@ def process_audio_job(job_data):
             processed_chunks += increment
             processed_chunks = min(processed_chunks, total_chunks)
             if increment > 0:
-                _chunk_done_ts.append(time.monotonic())
-            elapsed = max((datetime.now() - job_start_time).total_seconds(), 0.001)
+                timing.complete()
             remaining = max(total_chunks - processed_chunks, 0)
-            eta_seconds = None
-            if processed_chunks and remaining:
-                eta_seconds = int((elapsed / processed_chunks) * remaining)
-            elif remaining == 0:
-                eta_seconds = 0
-
-            percent = int((processed_chunks / total_chunks) * 100)
-            percent = max(0, min(100, percent))
-
-            # Build live timing snapshot so job details always show current metrics
-            live_tm = None
-            if increment > 0 and len(_chunk_done_ts) >= 1:
-                _ct: List[float] = []
-                if len(_chunk_done_ts) >= 2:
-                    _ct = [_chunk_done_ts[i] - _chunk_done_ts[i - 1] for i in range(1, len(_chunk_done_ts))]
-                live_tm = {
-                    "started_at": job_start_time.isoformat(),
-                    "completed_at": None,
-                    "total_seconds": round(elapsed, 1),
-                    "chunk_count": len(_chunk_done_ts),
-                    "avg_chunk_seconds": round(sum(_ct) / len(_ct), 1) if _ct else None,
-                    "min_chunk_seconds": round(min(_ct), 1) if _ct else None,
-                    "max_chunk_seconds": round(max(_ct), 1) if _ct else None,
-                    "chunk_times": [round(t, 2) for t in _ct],
-                }
+            eta_seconds = timing.eta(remaining) if remaining else 0
+            percent = max(0, min(100, int(processed_chunks / total_chunks * 100)))
+            live_tm = timing.snapshot()
 
             with queue_lock:
                 job_entry = jobs.get(job_id)
@@ -4922,10 +5177,8 @@ def process_audio_job(job_data):
                     review_manifest["books"] = list(_partial.get("books") or [])
                     review_manifest["chunk_dirs_to_cleanup"] = list(_partial.get("chunk_dirs_to_cleanup") or [])
                     review_manifest["all_full_story_chunks"] = list(_partial.get("all_full_story_chunks") or [])
-                    if all_full_story_chunks is not None:
-                        all_full_story_chunks = [
-                            str(job_dir / rel) for rel in review_manifest["all_full_story_chunks"]
-                        ]
+                    # The chapter loop rebuilds the full-story list, including
+                    # skipped chapters. Restoring it here would duplicate them.
                     # Track which chapter indices are already in the manifest so the
                     # chapter loop does not append them a second time (prevents duplication).
                     _restored_chapter_indices = {
@@ -4957,9 +5210,20 @@ def process_audio_job(job_data):
             existing_job_chunks = list(jobs.get(job_id, {}).get("chunks") or [])
         if existing_job_chunks:
             job_chunks = existing_job_chunks
+        if resume_from_chunk_index:
+            claimed_paths = {}
+            for record in job_chunks:
+                path = str(Path(record.get("file_path") or "").resolve()).casefold()
+                identity = (record.get("chapter_index"), record.get("text"))
+                if path in claimed_paths and claimed_paths[path] != identity:
+                    raise RuntimeError(
+                        "This job has conflicting chunk files from an older resume. "
+                        "Start a new generation from the saved project; resuming cannot restore overwritten audio."
+                    )
+                claimed_paths[path] = identity
 
         def register_chunk(chapter_idx: int, chunk_idx: int, segment: Dict[str, Any], file_path: str):
-            chunk_id = f"{chapter_idx}-{chunk_idx}-{len(job_chunks)}"
+            chunk_id = f"{chapter_idx}-{segment.get('order_index', chunk_idx)}"
             speaker_name = segment.get("speaker")
             speaker_assignment = None
             if voice_assignments:
@@ -4975,6 +5239,7 @@ def process_audio_job(job_data):
                 "speaker": segment.get("speaker"),
                 "engine": engine_name,
                 "emotion": segment.get("emotion"),
+                "delivery_instruction": segment.get("delivery_instruction") or segment.get("emotion"),
                 "text": segment.get("text"),
                 "file_path": file_path,
                 "relative_file": os.path.relpath(file_path, job_dir),
@@ -4983,11 +5248,14 @@ def process_audio_job(job_data):
             }
             if voice_label:
                 record["voice_label"] = voice_label
+            job_chunks[:] = [old for old in job_chunks if not (
+                old.get("chapter_index") == chapter_idx and old.get("order_index") == record["order_index"]
+            )]
             job_chunks.append(record)
             with queue_lock:
                 job_entry = jobs.get(job_id)
                 if job_entry is not None:
-                    job_entry.setdefault("chunks", []).append(record)
+                    job_entry["chunks"] = list(job_chunks)
 
         def make_chunk_callback(
             chapter_idx: int,
@@ -5106,6 +5374,7 @@ def process_audio_job(job_data):
                     original_section_items.append({
                         "speaker": original_segment.get("speaker"),
                         "emotion": original_segment.get("emotion"),
+                        "delivery_instruction": original_segment.get("delivery_instruction") or original_segment.get("emotion"),
                         "text": chunk_text,
                         "segment_index": segment_index,
                         "chunk_index": chunk_index,
@@ -5147,7 +5416,7 @@ def process_audio_job(job_data):
                     if record_chapter != chapter_idx:
                         continue
                     try:
-                        record_index = int(record.get("chunk_index"))
+                        record_index = int(record.get("order_index", record.get("chunk_index")))
                     except (TypeError, ValueError):
                         continue
                     file_path = str(record.get("file_path") or "")
@@ -5170,14 +5439,12 @@ def process_audio_job(job_data):
                     if index in prefix_by_index
                 ]
                 if len(resume_prefix_files) != section_skip:
-                    job_log.warning(
-                        "Resume checkpoint expected %d prior chunk file(s) in chapter %d but found %d.",
-                        section_skip,
-                        chapter_idx,
-                        len(resume_prefix_files),
+                    raise RuntimeError(
+                        f"Resume expected {section_skip} saved chunks in chapter {chapter_idx}, "
+                        f"but found {len(resume_prefix_files)}. Restore missing files or start a new generation."
                     )
                 existing_record_indices = {
-                    int(record.get("chunk_index"))
+                    int(record.get("order_index", record.get("chunk_index")))
                     for record in job_chunks
                     if str(record.get("chapter_index")) == str(chapter_idx)
                     and str(record.get("chunk_index", "")).isdigit()
@@ -5222,6 +5489,7 @@ def process_audio_job(job_data):
                         "speaker": speaker,
                         "text": chunk_text,
                         "emotion": segment.get("emotion"),
+                        "delivery_instruction": segment.get("delivery_instruction") or segment.get("emotion"),
                     }
                     flat_segments.append(descriptor)
                     pause_seconds = pause_seconds_for_text(
@@ -5254,11 +5522,10 @@ def process_audio_job(job_data):
                         render_descriptor_lookup[(render_segment_index, render_chunk_index)] = descriptor
                     render_segments.append(render_segment)
 
-            has_pause_markers = bool(pause_descriptors)
-            render_dir = output_dir
-            if has_pause_markers:
-                render_dir = output_dir / f".tts-render-{uuid.uuid4().hex}"
-                render_dir.mkdir(parents=True, exist_ok=True)
+            # Engines may restart their own filenames at zero on every call.
+            # Stage every batch, then commit with stable section-relative indices.
+            render_dir = output_dir / f".tts-render-{uuid.uuid4().hex}"
+            render_dir.mkdir(parents=True, exist_ok=True)
 
             final_files_by_order: Dict[int, str] = {}
             next_normal_callback = 0
@@ -5346,17 +5613,17 @@ def process_audio_job(job_data):
                     raise JobCancelled()
 
             engine_kwargs = {
-                "segments": render_segments if has_pause_markers else segments,
+                "segments": render_segments,
                 "voice_config": voice_assignments,
                 "output_dir": str(render_dir),
                 "speed": config['speed'],
-                "progress_cb": pause_aware_progress_cb if has_pause_markers else update_progress,
+                "progress_cb": pause_aware_progress_cb,
             }
             sig_params = inspect.signature(engine.generate_batch).parameters
             if "sample_rate" in sig_params:
                 engine_kwargs["sample_rate"] = config.get("sample_rate")
             if "chunk_cb" in sig_params:
-                engine_kwargs["chunk_cb"] = pause_aware_chunk_cb if has_pause_markers else chunk_cb
+                engine_kwargs["chunk_cb"] = pause_aware_chunk_cb
                 supports_chunk_cb = True
             if "parallel_workers" in sig_params:
                 parallel_setting = {
@@ -5367,13 +5634,14 @@ def process_audio_job(job_data):
                     "elevenlabs": "elevenlabs_max_parallel",
                     "openai_tts": "openai_tts_max_parallel",
                     "localai_tts": "localai_tts_max_parallel",
+                    "breeze_api": "breeze_api_max_parallel",
                 }.get(engine_name, "parallel_chunks")
                 engine_kwargs["parallel_workers"] = max(
                     1,
                     min(8, int(config.get(parallel_setting, 1) or 1)),
                 )
             if "start_index" in sig_params:
-                engine_kwargs["start_index"] = 0 if has_pause_markers else section_skip
+                engine_kwargs["start_index"] = 0
             if "pause_cb" in sig_params:
                 engine_kwargs["pause_cb"] = pause_cb
             if "cancel_cb" in sig_params:
@@ -5381,7 +5649,7 @@ def process_audio_job(job_data):
             if "group_by_speaker" in sig_params:
                 engine_kwargs["group_by_speaker"] = (
                     bool(config.get("group_chunks_by_speaker", False))
-                    and not has_pause_markers
+                    and not pause_descriptors
                 )
             _total_text_chunks = sum(len(seg.get("chunks") or []) for seg in segments)
             if job_log:
@@ -5390,45 +5658,24 @@ def process_audio_job(job_data):
             try:
                 audio_files = (
                     run_with_cancel(lambda: engine.generate_batch(**engine_kwargs))
-                    if normal_descriptors or not has_pause_markers
+                    if normal_descriptors
                     else []
                 )
-                if has_pause_markers and not supports_chunk_cb:
+                if not supports_chunk_cb:
                     for descriptor, file_path in zip(normal_descriptors, audio_files or []):
                         commit_pauses_before(int(descriptor["order_index"]))
                         commit_rendered_chunk(descriptor, file_path)
-                if has_pause_markers:
-                    commit_pauses_before(len(flat_segments) + 1)
-                    audio_files = [
-                        final_files_by_order[index]
-                        for index in range(len(flat_segments))
-                        if index in final_files_by_order
-                    ]
-                    if len(audio_files) != len(flat_segments):
-                        raise RuntimeError(
-                            "TTS engine did not return all spoken chunks surrounding pause markers"
-                        )
-                elif not audio_files and generated_files:
-                    audio_files = list(generated_files)
+                commit_pauses_before(len(flat_segments) + 1)
+                audio_files = [final_files_by_order[index] for index in range(len(flat_segments))
+                               if index in final_files_by_order]
+                if len(audio_files) != len(flat_segments):
+                    raise RuntimeError("TTS engine did not return all requested chunks")
             finally:
-                if has_pause_markers:
-                    shutil.rmtree(render_dir, ignore_errors=True)
+                shutil.rmtree(render_dir, ignore_errors=True)
             if job_log:
                 job_log.info("  engine returned %d audio file(s) for chapter_idx=%d",
                              len(audio_files) if audio_files else 0, chapter_idx)
 
-            if not supports_chunk_cb and audio_files and not has_pause_markers:
-                for order_idx, file_path in enumerate(audio_files):
-                    if order_idx >= len(flat_segments):
-                        break
-                    descriptor = flat_segments[order_idx]
-                    register_chunk(
-                        chapter_idx,
-                        descriptor["chunk_index"],
-                        descriptor,
-                        file_path,
-                    )
-                    update_progress(1)
             return resume_prefix_files + list(audio_files or [])
 
         def _prebuild_subprocess_engine_all_chapters():
@@ -5693,7 +5940,7 @@ def process_audio_job(job_data):
                             )
                             if job_log:
                                 job_log.info("Merge complete: %s (exists=%s)", output_path.name, output_path.exists())
-                            update_progress()
+                            update_progress(0)
                             update_post_process(len(book_chunk_files))
                             merge_chunk_offset += len(book_chunk_files)
 
@@ -5819,7 +6066,7 @@ def process_audio_job(job_data):
                                 job_log.info("Merge complete: %s (exists=%s)", output_path.name, output_path.exists())
                             
                             # Update progress and cleanup
-                            update_progress()
+                            update_progress(0)
                             update_post_process(len(audio_files))
                             with queue_lock:
                                 completed_merges[0] += 1
@@ -5892,7 +6139,7 @@ def process_audio_job(job_data):
                     )
                     if job_log:
                         job_log.info("Merge complete: %s (exists=%s)", output_file.name, output_file.exists())
-                    update_progress()
+                    update_progress(0)
                     update_post_process(len(audio_files))
                     if chunk_dir.exists():
                         try:
@@ -5922,7 +6169,7 @@ def process_audio_job(job_data):
                     update_post_process_progress(offset, count, ratio)
                 ),
             )
-            update_progress()
+            update_progress(0)
             update_post_process(len(all_full_story_chunks))
             merge_chunk_offset += len(all_full_story_chunks)
 
@@ -5968,6 +6215,10 @@ def process_audio_job(job_data):
                     job_entry['full_story_requested'] = generate_full_story
             
             _merge_review_job(job_id, jobs.get(job_id), review_manifest)
+            with queue_lock:
+                jobs[job_id]['timing_metrics'] = timing.snapshot(finished=True)
+            _persist_job_state(job_id, force=True)
+            _persist_chunks_metadata(job_id, job_dir)
             logger.info(f"Job {job_id} auto-finished and moved to library for chunk review")
             job_log.info("Job auto-finished in review mode — %d total chunks written", len(job_chunks))
             job_log.info("review_manifest.json and chunks_metadata.json saved to: %s", job_dir)
@@ -5994,33 +6245,8 @@ def process_audio_job(job_data):
         }
         save_job_metadata(job_dir, metadata)
         
-        # Compute timing metrics from chunk completion timestamps
         job_end_time = datetime.now()
-        this_run_seconds = (job_end_time - job_start_time).total_seconds()
-        # Accumulate elapsed time across all pause/resume cycles
-        total_job_seconds = this_run_seconds + _prior_elapsed_seconds
-        # Derive per-chunk render times from consecutive completion timestamps this run
-        this_run_chunk_times: List[float] = []
-        if len(_chunk_done_ts) >= 2:
-            this_run_chunk_times = [
-                _chunk_done_ts[i] - _chunk_done_ts[i - 1]
-                for i in range(1, len(_chunk_done_ts))
-            ]
-        elif len(_chunk_done_ts) == 1 and total_chunks == 1:
-            this_run_chunk_times = [this_run_seconds]
-        # Merge prior chunk_times (from before pause) with this run's chunk_times
-        chunk_times: List[float] = _prior_chunk_times + this_run_chunk_times
-        avg_chunk_seconds = (sum(chunk_times) / len(chunk_times)) if chunk_times else None
-        timing_metrics = {
-            "started_at": jobs[job_id].get("started_at"),
-            "completed_at": job_end_time.isoformat(),
-            "total_seconds": round(total_job_seconds, 1),
-            "chunk_count": resume_from_chunk_index + len(_chunk_done_ts),
-            "avg_chunk_seconds": round(avg_chunk_seconds, 1) if avg_chunk_seconds is not None else None,
-            "min_chunk_seconds": round(min(chunk_times), 1) if chunk_times else None,
-            "max_chunk_seconds": round(max(chunk_times), 1) if chunk_times else None,
-            "chunk_times": [round(t, 1) for t in chunk_times],
-        }
+        timing_metrics = timing.snapshot(finished=True)
 
         # Update job as completed
         with queue_lock:
@@ -6095,6 +6321,7 @@ def process_audio_job(job_data):
             if job_entry:
                 job_entry['status'] = 'paused'
                 job_entry['paused_at'] = datetime.now().isoformat()
+                job_entry['timing_metrics'] = timing.snapshot()
                 job_entry['eta_seconds'] = None
                 job_entry['last_update'] = datetime.now().isoformat()
         _persist_job_state(job_id, force=True)
@@ -6108,6 +6335,8 @@ def process_audio_job(job_data):
             job_entry = jobs.get(job_id)
             if job_entry:
                 job_entry['status'] = 'cancelled'
+                if 'timing' in locals():
+                    job_entry['timing_metrics'] = timing.snapshot()
                 job_entry['eta_seconds'] = None
                 job_entry['last_update'] = datetime.now().isoformat()
         _persist_job_state(job_id, force=True)
@@ -6122,6 +6351,8 @@ def process_audio_job(job_data):
             job_entry['status'] = 'interrupted' if processed_chunks > 0 else 'failed'
             job_entry['error'] = str(e)
             job_entry['interrupted_at'] = datetime.now().isoformat()
+            if 'timing' in locals():
+                job_entry['timing_metrics'] = timing.snapshot()
             if processed_chunks > 0:
                 job_entry['last_completed_chunk_index'] = processed_chunks - 1
                 job_entry['resume_from_chunk_index'] = processed_chunks
@@ -6146,7 +6377,10 @@ def _prune_qwen3_voice_design_tasks(max_age_seconds: int = 3600) -> None:
     removed = []
     with queue_lock:
         for task_id, entry in list(jobs.items()):
-            if entry.get("job_type") not in {"qwen3_voice_design_preview", "qwen3_voice_design_save"}:
+            if entry.get("job_type") not in {
+                "qwen3_voice_design_preview", "qwen3_voice_design_save",
+                "breeze_voice_design_preview", "breeze_voice_design_save",
+            }:
                 continue
             if entry.get("status") not in {"completed", "failed", "cancelled", "interrupted"}:
                 continue
@@ -6188,6 +6422,28 @@ def _enqueue_qwen3_voice_design_task(task_type: str, payload: Dict[str, Any]) ->
     if task_type == "qwen3_voice_design_preview":
         job_payload["config"] = load_config()
     job_queue.put(job_payload)
+    return job_id
+
+
+def _enqueue_breeze_voice_design_task(task_type: str, payload: Dict[str, Any]) -> str:
+    _prune_qwen3_voice_design_tasks()
+    start_worker_thread()
+    job_id = str(uuid.uuid4())
+    job_entry = {
+        "status": "queued",
+        "progress": 0,
+        "created_at": datetime.now().isoformat(),
+        "job_type": task_type,
+        "title": "Breeze TTS 2 Voice Design",
+    }
+    with queue_lock:
+        jobs[job_id] = job_entry
+    job_queue.put({
+        "job_id": job_id,
+        "job_type": task_type,
+        "payload": payload,
+        **({"config": load_config()} if task_type == "breeze_voice_design_preview" else {}),
+    })
     return job_id
 
 
@@ -6244,6 +6500,32 @@ def process_qwen3_voice_design_preview_task(job_data: Dict[str, Any]) -> None:
         _cleanup_qwen_voice_design_generation()
 
 
+def process_breeze_voice_design_preview_task(job_data: Dict[str, Any]) -> None:
+    """Process a queued Breeze TTS 2 reference-free voice-design preview."""
+    job_id = job_data["job_id"]
+    payload = job_data.get("payload") or {}
+    config = job_data.get("config") or load_config()
+    try:
+        result = _generate_breeze_voice_design_preview(payload, config)
+        result["task_id"] = job_id
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if job_entry:
+                job_entry["status"] = "completed"
+                job_entry["progress"] = 100
+                job_entry["completed_at"] = datetime.now().isoformat()
+                job_entry["result"] = result
+        _persist_job_state(job_id, force=True)
+    except Exception as exc:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if job_entry:
+                job_entry["status"] = "failed"
+                job_entry["error"] = str(exc)
+        _persist_job_state(job_id, force=True)
+        raise
+
+
 def process_qwen3_voice_design_save_task(job_data: Dict[str, Any]) -> None:
     """Process a queued Qwen3 VoiceDesign save request."""
     job_id = job_data["job_id"]
@@ -6268,6 +6550,15 @@ def process_qwen3_voice_design_save_task(job_data: Dict[str, Any]) -> None:
         raise
 
 
+def _serialize_gpu_generation(function):
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        with gpu_generation_lifecycle_lock:
+            return function(*args, **kwargs)
+    return guarded
+
+
+@_serialize_gpu_generation
 def _generate_omnivoice_design_preview(payload: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
     """Generate an OmniVoice voice-design preview clip and return base64 audio."""
     if not omnivoice_available():
@@ -6748,6 +7039,115 @@ def get_edge_tts_voices():
         "cached": False,
         "experimental": True,
     })
+
+
+@app.route('/api/breeze-api/catalog', methods=['GET', 'POST'])
+def breeze_api_catalog():
+    config = load_config()
+    data = request.get_json(silent=True) or {}
+    if "api_key" in data:
+        config["breeze_api_key"] = data["api_key"]
+    try:
+        return jsonify(success=True, **_create_engine("breeze_api", config).catalog())
+    except BreezeAPIError as exc:
+        return jsonify(success=False, error=str(exc)), 400
+    except (ValueError, KeyError):
+        return jsonify(success=False, error="Unable to load Breeze catalog. Check the API key, network and account access."), 400
+
+
+def _breeze_production_progress(job_id, message):
+    if cancel_flags.get(job_id):
+        raise JobCancelled()
+    if pause_flags.get(job_id):
+        raise JobPaused()
+    with queue_lock:
+        entry = jobs.get(job_id)
+        if entry is not None:
+            entry['breeze_voice_status'] = message
+    logger.info('Job %s: %s', job_id, message)
+
+
+@app.route('/api/breeze-api/productions', methods=['GET'])
+def breeze_api_productions():
+    return jsonify(success=True, productions=BREEZE_PRODUCTIONS.list())
+
+
+@app.route('/api/breeze-api/productions/<job_id>/release', methods=['POST'])
+def breeze_api_release_production(job_id):
+    if not _engine_management_request_allowed():
+        return _engine_management_denied('Production voice removal')
+    data = request.get_json(silent=True) or {}
+    if data.get('confirm_release') is not True:
+        return jsonify(success=False, error='Confirm that the production is delivered/approved and paid, or deliberately abandoned, before releasing its voices.'), 400
+    with queue_lock:
+        entry = jobs.get(job_id) or {}
+        if entry.get('status') in {'queued', 'processing', 'pausing', 'paused', 'interrupted'} or _has_active_regen_tasks(entry):
+            return jsonify(success=False, error='Finish or cancel this job and its regeneration tasks before releasing voices.'), 409
+    try:
+        result = BREEZE_PRODUCTIONS.release(job_id, _create_engine('breeze_api', load_config()))
+        return jsonify(success=True, production=result)
+    except (ProductionError, BreezeAPIError, OSError) as exc:
+        return jsonify(success=False, error=str(exc)), 400
+
+
+@app.route('/api/breeze-api/productions/<job_id>/recover', methods=['POST'])
+def breeze_api_recover_production(job_id):
+    if not _engine_management_request_allowed():
+        return _engine_management_denied('Production voice recovery')
+    data = request.get_json(silent=True) or {}
+    with queue_lock:
+        entry = jobs.get(job_id) or {}
+        if entry.get('status') in {'queued', 'processing', 'pausing'} or _has_active_regen_tasks(entry):
+            return jsonify(success=False, error='Pause or stop the job and its regeneration tasks before recovery.'), 409
+    try:
+        result = BREEZE_PRODUCTIONS.recover(job_id, str(data.get('sample_key') or ''),
+            _create_engine('breeze_api', load_config()), confirm_absent=data.get('confirm_absent') is True)
+        return jsonify(success=True, **result)
+    except (ProductionError, BreezeAPIError, OSError, ValueError) as exc:
+        return jsonify(success=False, error=str(exc)), 400
+
+
+@app.route('/api/breeze-api/clone', methods=['POST'])
+def breeze_api_clone():
+    data = request.get_json(silent=True) or {}
+    if data.get("consent") is not True:
+        return jsonify(success=False, error="Confirm rights and consent before uploading a voice sample."), 400
+    root = VOICE_PROMPT_DIR.resolve()
+    path = (root / str(data.get("file_name") or "")).resolve()
+    if path.parent != root or not path.is_file():
+        return jsonify(success=False, error="Select an existing voice-library sample."), 400
+    language = str(data.get("language") or "en")
+    if not re.fullmatch(r"[a-z]{2}", language):
+        return jsonify(success=False, error="Use a two-letter language code, such as en."), 400
+    try:
+        result = _create_engine("breeze_api", load_config()).clone_preview(path, str(data.get("name") or path.stem), language)
+        return jsonify(success=True, **result)
+    except (BreezeAPIError, ValueError):
+        return jsonify(success=False, error="Breeze could not create the clone. Check sample format (WAV/MP3, 3+ seconds, ≤5 MB), credits and account permissions."), 400
+
+
+@app.route('/api/breeze-api/preview/<preview_id>')
+def breeze_api_preview(preview_id):
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", preview_id):
+        abort(400)
+    try:
+        response = _create_engine("breeze_api", load_config()).request("GET", f"/voice-previews/{preview_id}/stream")
+        return Response(response.content, mimetype=response.headers.get("Content-Type", "audio/mpeg"))
+    except BreezeAPIError:
+        return jsonify(success=False, error="Unable to download Breeze preview."), 400
+
+
+@app.route('/api/breeze-api/save-voice', methods=['POST'])
+def breeze_api_save_voice():
+    data = request.get_json(silent=True) or {}
+    preview_id = str(data.get("preview_id") or "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", preview_id):
+        return jsonify(success=False, error="Invalid preview ID."), 400
+    try:
+        result = _create_engine("breeze_api", load_config()).save_preview(preview_id, str(data.get("name") or "TTS-Story voice"), str(data.get("language") or "en"))
+        return jsonify(success=True, **result)
+    except (BreezeAPIError, ValueError):
+        return jsonify(success=False, error="Unable to save Breeze voice. Check verification requirements and available voice slots."), 400
 
 
 @app.route('/api/elevenlabs/catalog', methods=['GET', 'POST'])
@@ -7274,6 +7674,103 @@ def _generate_voice_design_preview(payload: Dict[str, Any], config: Dict[str, An
     }
 
 
+def _generate_breeze_voice_design_preview(payload: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate a reference-free Breeze casting sample in the persistent Breeze worker."""
+    text = _ensure_voice_design_preview_length(payload.get("text") or "")
+    instruct, language = _build_qwen_voice_design_instruction(payload)
+    if not text:
+        raise ValueError("Text is required to generate a preview.")
+    if str(language or "English").lower() not in {"english", "chinese", "auto"}:
+        raise ValueError("Breeze TTS 2 voice design currently supports English and Chinese.")
+    try:
+        seed = int(payload.get("seed"))
+    except (TypeError, ValueError):
+        seed = uuid.uuid4().int & 0x7fffffff
+    seed = max(0, min(seed, 0x7fffffff))
+
+    model_id = (config.get("breeze_tts_2_model_id") or "BreezeBlue/Breeze-TTS-2").strip()
+    if config.get("breeze_tts_2_runtime") == "q8":
+        model_id = "HoppouAI/Breeze-TTS-2.cpp/breeze-tts-2-q8_0.gguf"
+    constructor = {
+        "runtime": config.get("breeze_tts_2_runtime") or "pytorch",
+        "device": (config.get("breeze_tts_2_device") or "auto").strip(),
+        "model_id": model_id,
+        # Keep the constructor stable so changing the candidate seed does not
+        # force the persistent worker to discard and reload the model.
+        "seed": int(config.get("breeze_tts_2_seed") or 42),
+        "clone_cfg_scale": float(config.get("breeze_tts_2_clone_cfg_scale") or 1.0),
+        "design_cfg_scale": float(config.get("breeze_tts_2_design_cfg_scale") or 4.0),
+        "direction_cfg_scale": float(config.get("breeze_tts_2_direction_cfg_scale") or 4.0),
+        "max_new_tokens": int(config.get("breeze_tts_2_max_new_tokens") or 1500),
+        "max_seq_len": int(config.get("breeze_tts_2_max_seq_len") or 2048),
+        "fast_mode": bool(config.get("breeze_tts_2_fast_mode", False)),
+        "default_instruction": (config.get("breeze_tts_2_default_instruction") or "Speak clearly and naturally.").strip(),
+    }
+    started_at = time.perf_counter()
+    temporary_output = Path(tempfile.gettempdir()) / f"tts-story-breeze-{uuid.uuid4().hex}.wav"
+    try:
+        with gpu_inference_lock:
+            worker_result = _run_isolated_breeze_voice_design({
+                "id": uuid.uuid4().hex,
+                "text": text,
+                "instruct": instruct,
+                "seed": seed,
+                "output_path": str(temporary_output),
+                "constructor": constructor,
+            })
+        raw_audio, sr = sf.read(temporary_output, dtype="float32")
+    finally:
+        temporary_output.unlink(missing_ok=True)
+    audio_data = _apply_voice_design_cleanup(raw_audio, int(sr))
+    duration_seconds = float(len(audio_data)) / float(sr)
+    if duration_seconds < MIN_VOICE_DESIGN_PREVIEW_SECONDS:
+        raise RuntimeError(
+            f"Breeze voice design produced a {duration_seconds:.1f}-second preview. "
+            f"Casting samples must be at least {MIN_VOICE_DESIGN_PREVIEW_SECONDS:.0f} seconds; "
+            "try generating the candidate again."
+        )
+    if duration_seconds > MAX_VOICE_DESIGN_PREVIEW_SECONDS:
+        raise RuntimeError(
+            f"Breeze voice design produced an abnormal {duration_seconds:.1f}-second preview."
+        )
+    buffer = io.BytesIO()
+    sf.write(buffer, audio_data, int(sr), format="wav")
+    wav_bytes = buffer.getvalue()
+    elapsed_seconds = time.perf_counter() - started_at
+    cuda_metrics = {
+        key: worker_result[key]
+        for key in ("cuda_allocated_mb", "cuda_reserved_mb", "cuda_peak_allocated_mb")
+        if key in worker_result
+    }
+    logger.info(
+        "Breeze voice design completed seed=%s duration=%.1fs elapsed=%.1fs allocated=%sMB reserved=%sMB peak=%sMB",
+        seed, duration_seconds, elapsed_seconds,
+        cuda_metrics.get("cuda_allocated_mb", "n/a"),
+        cuda_metrics.get("cuda_reserved_mb", "n/a"),
+        cuda_metrics.get("cuda_peak_allocated_mb", "n/a"),
+    )
+    return {
+        "audio_base64": base64.b64encode(wav_bytes).decode("ascii"),
+        "mime_type": "audio/wav",
+        "engine": "breeze_tts_2_voice_design",
+        "cleanup_applied": True,
+        "instruction": instruct,
+        "preview_text": text,
+        "duration_seconds": duration_seconds,
+        "elapsed_seconds": elapsed_seconds,
+        "language": "English" if str(language).lower() == "auto" else language,
+        "model": model_id,
+        "sampling_parameters": {
+            "cfg_scale": constructor["design_cfg_scale"],
+            "max_new_tokens": constructor["max_new_tokens"],
+            "fast_mode": constructor["fast_mode"],
+        },
+        "seed": seed,
+        "wav_sha256": hashlib.sha256(wav_bytes).hexdigest(),
+        **cuda_metrics,
+    }
+
+
 def _save_voice_design_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     name = (payload.get("name") or "").strip()
     text = (payload.get("text") or "").strip()
@@ -7329,6 +7826,7 @@ def _save_voice_design_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "language": language if language and language != "Auto" else None,
         "description": description,
         "voice_design": {
+            "engine": (payload.get("engine") or "qwen3_voice_design").strip(),
             "instruction": (payload.get("instruction") or payload.get("instruct") or "").strip(),
             "preview_text": text,
             "language": language,
@@ -8727,46 +9225,14 @@ def _merge_review_job(job_id: str, job_entry: Dict[str, Any], manifest: Dict[str
             if full_story_entry:
                 entry["full_story"] = full_story_entry
             entry["output_file"] = (full_story_entry or (chapter_outputs[0] if chapter_outputs else {})).get("file_url")
-            # Compute timing metrics — use duration_seconds from chunks_metadata for per-chunk times
-            started_at_str = entry.get("started_at")
+            # Keep measured active time; paused wall time and WAV duration are
+            # not synthesis timings and must never be used as substitutes.
+            prior_timing = entry.get("timing_metrics") or {}
+            started_at_str = prior_timing.get("started_at") or entry.get("started_at")
             total_chunks = entry.get("total_chunks") or 0
-            try:
-                started_dt = datetime.fromisoformat(started_at_str) if started_at_str else None
-                total_seconds = (job_end_time - started_dt).total_seconds() if started_dt else None
-            except Exception:
-                total_seconds = None
-            # Prefer render-time chunk_times already accumulated in the live timing_metrics
-            # (set by update_progress during generation). Fall back to WAV audio durations.
-            chunk_times: List[float] = list(entry.get("timing_metrics", {}).get("chunk_times") or [])
-            if not chunk_times:
-                try:
-                    import wave as _wave
-                    chunks_meta_path = job_dir / "chunks_metadata.json"
-                    if chunks_meta_path.exists():
-                        with chunks_meta_path.open("r", encoding="utf-8") as _f:
-                            _cmeta = json.load(_f)
-                        # Also check if timing_metrics was already saved in chunks_metadata
-                        _saved_tm = _cmeta.get("timing_metrics") or {}
-                        chunk_times = list(_saved_tm.get("chunk_times") or [])
-                        if not chunk_times:
-                            for _c in sorted(_cmeta.get("chunks") or [], key=lambda x: x.get("order_index", x.get("chunk_index", 0))):
-                                _rel = _c.get("relative_file")
-                                if not _rel:
-                                    continue
-                                _wav_path = job_dir / _rel
-                                if not _wav_path.exists():
-                                    continue
-                                try:
-                                    with _wave.open(str(_wav_path), "rb") as _wf:
-                                        _dur = _wf.getnframes() / float(_wf.getframerate())
-                                    chunk_times.append(round(_dur, 1))
-                                except Exception:
-                                    pass
-                except Exception:
-                    pass
-            avg_chunk = round(sum(chunk_times) / len(chunk_times), 1) if chunk_times else (
-                round(total_seconds / total_chunks, 1) if (total_seconds and total_chunks) else None
-            )
+            total_seconds = prior_timing.get("total_seconds")
+            chunk_times = list(prior_timing.get("chunk_times") or [])
+            avg_chunk = round(sum(chunk_times) / len(chunk_times), 1) if chunk_times else None
             final_timing_metrics = {
                 "started_at": started_at_str,
                 "completed_at": job_end_time.isoformat(),
@@ -8868,6 +9334,7 @@ def preview_audio():
         "voxcpm_local", "pocket_tts", "qwen3_clone", "omnivoice_clone",
         "dots_tts",
         "audio8_tts",
+        "breeze_tts_2",
     }
     audio_prompt_path = data.get('audio_prompt_path') or None
     if engine_name in _PROMPT_ENGINES and voice and not audio_prompt_path:
@@ -8880,7 +9347,7 @@ def preview_audio():
     if engine_name in _QWEN3_ENGINES and lang_code in _KOKORO_LANG_CODES:
         lang_code = 'auto'
 
-    if not voice and not audio_prompt_path and engine_name != "audio8_tts":
+    if not voice and not audio_prompt_path and engine_name not in {"audio8_tts", "breeze_tts_2"}:
         return jsonify({"success": False, "error": "Voice is required for preview."}), 400
 
     try:
@@ -9500,7 +9967,7 @@ def resume_job(job_id: str):
                 _persist_job_state(job_id, force=True)
                 return jsonify({"success": True, "message": "Job already completed"})
             resumable_statuses = {"paused", "interrupted"}
-            if processed_chunks > 0:
+            if processed_chunks > 0 or job_entry.get('engine') == 'breeze_api':
                 resumable_statuses.add("failed")
             if job_entry.get("status") not in resumable_statuses:
                 return jsonify({"success": False, "error": "Job is not paused"}), 409
@@ -9963,7 +10430,15 @@ def get_gemini_sections():
 def process_gemini_section():
     """Process a single text section through the configured LLM."""
     try:
+        from src.structured_output import validate_schema, StructuredOutputError
+        from src.directed_output import prepare_direction_request, assemble_directed
         data = request.json or {}
+        structured_options = {}
+        if 'response_schema' in data:
+            validate_schema(data['response_schema'], data.get('response_schema_name'),
+                            data.get('response_schema_strict', True))
+            structured_options = {key: data[key] for key in (
+                'response_schema', 'response_schema_name', 'response_schema_strict') if key in data}
         content = (data.get('content') or '').strip()
         prompt_override = (data.get('prompt_override') or '').strip()
         preferred_profile = (data.get('preferred_profile') or '').strip()
@@ -10001,23 +10476,38 @@ def process_gemini_section():
             prompt_prefix,
             known_speakers
         )
+        locked = None
+        if data.get('directed_mode'):
+            # This opt-in operates only on already locked speaker blocks, never
+            # on raw prose that still requires speaker attribution.
+            locked, prompt, schema = prepare_direction_request(data.get('content') or '')
+            structured_options = dict(response_schema=schema,
+                                      response_schema_name='tts_story_directions',
+                                      response_schema_strict=True)
         response_text, profile_used, provider_failures = _run_llm_prompt_with_failover(
             prompt,
             config,
             preferred_profile=preferred_profile,
             defer_transient_failover=True,
+            **structured_options,
         )
+        audit = None
+        if locked is not None:
+            response_text, audit = assemble_directed(locked, response_text)
         detected_speakers = text_processor.extract_speakers(response_text)
 
         return jsonify({
             "success": True,
-            "result_text": response_text.strip(),
+            "result_text": response_text if locked is not None else response_text.strip(),
             "speakers": detected_speakers,
             "llm_profile_used": profile_used,
             "llm_provider_used": profile_used["provider"],
             "provider_failures": provider_failures,
+            **({"direction_audit": audit} if audit is not None else {}),
         })
 
+    except StructuredOutputError as exc:
+        return jsonify({"success": False, "error": str(exc), "retryable": False}), 400
     except (GeminiProcessorError, LocalLLMProcessorError, AtlasCloudProcessorError, OpenRouterProcessorError, LLMProviderChainError) as exc:
         err_str = str(exc)
         transient_markers = ("503", "UNAVAILABLE", "429", "quota", "rate limit", "rate_limit", "high demand", "try again")
@@ -10198,6 +10688,10 @@ def generate_audio():
         
         # Create job
         job_id = str(uuid.uuid4())
+        if active_engine == 'breeze_api':
+            voice_assignments = BREEZE_PRODUCTIONS.bind(
+                job_id, voice_assignments, consent=data.get('breeze_upload_consent') is True,
+                title=data.get('production_title') or text[:100])
         text_path = _write_job_text(job_id, text)
         text_length = len(text)
         speakers = _extract_speakers_for_text(text)
@@ -11490,7 +11984,7 @@ def _rebuild_review_manifest_from_chunks(job_id: str, job_dir: Path, force_rebui
                     "relative_file": rel_file,
                 }
                 # Carry over text/speaker/voice data from original if present
-                for field in ("speaker", "text", "engine", "emotion", "voice_assignment", "voice_label",
+                for field in ("speaker", "text", "engine", "emotion", "delivery_instruction", "voice_assignment", "voice_label",
                               "duration_seconds", "regenerated_at", "regen_status", "file_path"):
                     if field in orig:
                         record[field] = orig[field]
@@ -12365,6 +12859,8 @@ def get_queue():
                     if job_info.get("job_type") in {
                         "qwen3_voice_design_preview",
                         "qwen3_voice_design_save",
+                        "breeze_voice_design_preview",
+                        "breeze_voice_design_save",
                         "omnivoice_design_preview",
                         "omnivoice_design_save",
                     }:
@@ -12384,6 +12880,8 @@ def get_queue():
                         "total_chunks": job_info.get("total_chunks"),
                         "processed_chunks": job_info.get("processed_chunks", 0),
                         "eta_seconds": job_info.get("eta_seconds"),
+                        "breeze_voice_status": job_info.get("breeze_voice_status", ""),
+                        "engine": job_info.get("engine"),
                         "chapter_mode": job_info.get("chapter_mode", False),
                         "chapter_count": job_info.get("chapter_count"),
                         "book_mode": job_info.get("book_mode", False),
@@ -12659,6 +13157,10 @@ def _engine_setup_catalog(config: Optional[Dict[str, Any]] = None) -> List[Dict[
         ("index_tts", "IndexTTS", "local", INDEX_TTS_AVAILABLE, "index-tts"),
         ("dots_tts", "Dot.TTS", "local", DOTS_TTS_AVAILABLE, "dots-tts"),
         ("audio8_tts", "Audio8 TTS · Voice Clone", "local", isolated_engine_available("audio8_tts"), "audio8-tts"),
+        ("breeze_tts_2", "Breeze TTS 2 · Design / Clone / Direction", "local", (
+            _breeze_runtime_ready(config)
+            and (Path(__file__).resolve().parent / "engines" / "breeze_tts_2" / ".license_accepted").is_file()
+        ), "breeze-tts-2"),
         ("azure_speech", "Microsoft Azure Speech", "cloud", bool(
             (config.get("azure_speech_key") or "").strip()
             and (config.get("azure_speech_region") or "").strip()
@@ -12668,6 +13170,9 @@ def _engine_setup_catalog(config: Optional[Dict[str, Any]] = None) -> List[Dict[
             (config.get("elevenlabs_api_key") or "").strip()
         ), "elevenlabs"),
         ("openai_tts", "OpenAI-compatible TTS", "cloud", openai_ready, "openai-tts"),
+        ("breeze_api", "Breeze API · Hosted", "cloud", bool(
+            (config.get("breeze_api_key") or "").strip() and (config.get("breeze_api_model") or "").strip()
+        ), "breeze-api"),
         ("localai_tts", "LocalAI TTS", "service", bool(
             (config.get("localai_tts_model") or "").strip()
         ), "localai-tts"),
@@ -12685,6 +13190,7 @@ def _engine_setup_catalog(config: Optional[Dict[str, Any]] = None) -> List[Dict[
         "index_tts": "index_tts",
         "dots_tts": "dots_tts",
         "audio8_tts": "audio8_tts",
+        "breeze_tts_2": "breeze_tts_2",
         "edge_tts": "edge_tts",
     }
     return [{
@@ -12695,6 +13201,11 @@ def _engine_setup_catalog(config: Optional[Dict[str, Any]] = None) -> List[Dict[
         "settings_tab": settings_tab,
         "install_target": install_targets.get(engine_id),
         "uninstall_target": install_targets.get(engine_id) if ready else None,
+        "license_accepted": (
+            (Path(__file__).resolve().parent / "engines" / "breeze_tts_2" / ".license_accepted").is_file()
+            if engine_id == "breeze_tts_2" else None
+        ),
+        "q8_ready": (Path(__file__).resolve().parent / "engines/breeze_tts_2/.q8_ready").is_file() if engine_id == "breeze_tts_2" else None,
         "uninstall_warning": (
             f"This will remove {name}'s runtime package and downloaded model files. "
             "Shared TTS dependencies, projects, generated audio, and saved voice samples will be kept. "
@@ -12710,6 +13221,8 @@ def _run_engine_install_job(job_id: str, engine: str) -> None:
     job = ENGINE_INSTALL_JOBS[job_id]
     log_path = Path(job["log_path"])
     command = [sys.executable, str(Path(__file__).resolve().parent / "scripts" / "install_engine.py"), engine]
+    if engine == "breeze_tts_2":
+        command.extend(["--breeze-runtime", job.get("runtime", "pytorch")])
     try:
         with log_path.open("w", encoding="utf-8", errors="replace") as log_handle:
             process = subprocess.Popen(
@@ -12808,6 +13321,12 @@ def _exit_for_supervised_restart() -> None:
     except Exception:
         logger.warning("Unable to stop the Qwen voice-design worker before restart", exc_info=True)
     try:
+        global breeze_voice_design_process
+        if breeze_voice_design_process and breeze_voice_design_process.poll() is None:
+            breeze_voice_design_process.terminate()
+    except Exception:
+        logger.warning("Unable to stop the Breeze voice-design worker before restart", exc_info=True)
+    try:
         sys.stdout.flush()
         sys.stderr.flush()
     finally:
@@ -12873,11 +13392,26 @@ def install_optional_engine():
         return _engine_management_denied("Engine installation")
     payload = request.get_json(silent=True) or {}
     engine = str(payload.get("engine") or "").strip().lower()
+    breeze_runtime = payload.get("runtime", "pytorch")
+    if engine == "breeze_tts_2" and breeze_runtime not in ("pytorch", "q8"):
+        return jsonify({"success": False, "error": "Unknown Breeze runtime."}), 400
     allowed = {
         entry["install_target"] for entry in _engine_setup_catalog() if entry.get("install_target")
     }
     if engine not in allowed:
         return jsonify({"success": False, "error": "Unknown optional engine installer."}), 400
+    if engine == "breeze_tts_2":
+        if payload.get("license_accepted") is not True:
+            return jsonify({
+                "success": False,
+                "error": "Accept the BreezeBlue Research and Non-Commercial License before installing."
+            }), 400
+        marker = Path(__file__).resolve().parent / "engines" / "breeze_tts_2" / ".license_accepted"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(
+            f"Accepted through TTS-Story Settings at {datetime.now().isoformat()}.\n",
+            encoding="utf-8",
+        )
     with ENGINE_INSTALL_LOCK:
         active = next((
             existing for existing in ENGINE_INSTALL_JOBS.values()
@@ -12894,6 +13428,7 @@ def install_optional_engine():
             "id": job_id,
             "engine": engine,
             "action": "install",
+            "runtime": breeze_runtime if engine == "breeze_tts_2" else None,
             "status": "running",
             "output": "",
             "started_at": datetime.now().isoformat(),
@@ -13010,6 +13545,11 @@ def health_check():
         "qwen3_available": isolated_engine_available("qwen3_custom"),
         "qwen3_voice_design_available": isolated_engine_available("qwen3_custom"),
         "qwen3_voice_design_api_version": 2,
+        "breeze_voice_design_available": (
+            _breeze_runtime_ready(config)
+            and (Path(__file__).resolve().parent / "engines" / "breeze_tts_2" / ".license_accepted").is_file()
+        ),
+        "breeze_voice_design_api_version": 1,
         "omnivoice_available": omnivoice_available(),
         "pocket_tts_available": isolated_engine_available("pocket_tts"),
         "kitten_tts_available": isolated_engine_available("kitten_tts"),
@@ -13017,6 +13557,11 @@ def health_check():
         "index_tts_unavailable_reason": INDEX_TTS_UNAVAILABLE_REASON if not INDEX_TTS_AVAILABLE else "",
         "dots_tts_available": DOTS_TTS_AVAILABLE,
         "dots_tts_unavailable_reason": DOTS_TTS_UNAVAILABLE_REASON if not DOTS_TTS_AVAILABLE else "",
+        "audio8_tts_available": isolated_engine_available("audio8_tts"),
+        "breeze_tts_2_available": _breeze_runtime_ready(config),
+        "breeze_tts_2_license_accepted": (
+            Path(__file__).resolve().parent / "engines" / "breeze_tts_2" / ".license_accepted"
+        ).is_file(),
         "azure_speech_available": True,
         "azure_speech_configured": bool(
             (config.get("azure_speech_key") or "").strip()
@@ -13110,6 +13655,48 @@ def qwen3_voice_design_save():
     return jsonify({"success": True, "job_id": job_id}), 202
 
 
+@app.route('/api/breeze/voice-design/preview', methods=['POST'])
+def breeze_voice_design_preview():
+    marker = Path(__file__).resolve().parent / "engines" / "breeze_tts_2" / ".license_accepted"
+    if not _breeze_runtime_ready() or not marker.is_file():
+        return jsonify({
+            "success": False,
+            "error": (
+                "Breeze TTS 2 Voice Design is not ready. Install Breeze TTS 2 and accept its "
+                "Research and Non-Commercial License under Settings → Engine Settings."
+            ),
+        }), 400
+    payload = request.get_json(silent=True) or {}
+    if not (payload.get("text") or "").strip():
+        return jsonify({"success": False, "error": "Text is required to generate a preview."}), 400
+    job_id = _enqueue_breeze_voice_design_task("breeze_voice_design_preview", payload)
+    return jsonify({"success": True, "job_id": job_id}), 202
+
+
+@app.route('/api/breeze/voice-design/save', methods=['POST'])
+def breeze_voice_design_save():
+    marker = Path(__file__).resolve().parent / "engines" / "breeze_tts_2" / ".license_accepted"
+    if not isolated_engine_available("breeze_tts_2") or not marker.is_file():
+        return jsonify({
+            "success": False,
+            "error": "Breeze TTS 2 Voice Design is not installed or its license has not been accepted.",
+        }), 400
+    payload = request.get_json(silent=True) or {}
+    if not (payload.get("name") or "").strip():
+        return jsonify({"success": False, "error": "Voice name is required."}), 400
+    if not (payload.get("text") or "").strip():
+        return jsonify({"success": False, "error": "Sample text is required."}), 400
+    audio_base64 = payload.get("audio_base64")
+    if not audio_base64:
+        return jsonify({"success": False, "error": "Preview audio is required."}), 400
+    try:
+        base64.b64decode(audio_base64)
+    except Exception:
+        return jsonify({"success": False, "error": "Invalid audio payload."}), 400
+    job_id = _enqueue_breeze_voice_design_task("breeze_voice_design_save", payload)
+    return jsonify({"success": True, "job_id": job_id}), 202
+
+
 @app.route('/api/qwen3/voice-design/tasks/<task_id>', methods=['GET'])
 def qwen3_voice_design_task_status(task_id: str):
     with queue_lock:
@@ -13151,6 +13738,47 @@ def qwen3_voice_design_task_delete(task_id: str):
     return jsonify({"success": True, "removed": True})
 
 
+@app.route('/api/breeze/voice-design/tasks/<task_id>', methods=['GET'])
+def breeze_voice_design_task_status(task_id: str):
+    with queue_lock:
+        job_entry = jobs.get(task_id)
+        if not job_entry:
+            return jsonify({"success": False, "error": "Task not found."}), 404
+        if job_entry.get("job_type") not in {"breeze_voice_design_preview", "breeze_voice_design_save"}:
+            return jsonify({"success": False, "error": "Task type mismatch."}), 400
+        payload = {
+            "success": True,
+            "status": job_entry.get("status"),
+            "progress": job_entry.get("progress", 0),
+        }
+        if job_entry.get("status") == "completed":
+            payload["result"] = job_entry.get("result")
+        if job_entry.get("status") == "failed":
+            payload["error"] = job_entry.get("error")
+        return jsonify(payload)
+
+
+@app.route('/api/breeze/voice-design/tasks/<task_id>', methods=['DELETE'])
+def breeze_voice_design_task_delete(task_id: str):
+    with queue_lock:
+        job_entry = jobs.get(task_id)
+        if not job_entry:
+            return jsonify({"success": True, "removed": False})
+        if job_entry.get("job_type") not in {"breeze_voice_design_preview", "breeze_voice_design_save"}:
+            return jsonify({"success": False, "error": "Task type mismatch."}), 400
+        if job_entry.get("status") not in {"completed", "failed", "cancelled", "interrupted"}:
+            return jsonify({"success": False, "error": "Task is still active."}), 409
+        jobs.pop(task_id, None)
+    try:
+        with _get_jobs_db_connection() as conn:
+            conn.execute("DELETE FROM jobs WHERE job_id=?", (task_id,))
+            conn.commit()
+    except Exception as exc:
+        logger.warning("Unable to remove acknowledged Breeze voice-design task %s: %s", task_id, exc)
+    return jsonify({"success": True, "removed": True})
+
+
+@app.route('/api/voice-design/candidates/approve', methods=['POST'])
 @app.route('/api/qwen3/voice-design/candidates/approve', methods=['POST'])
 def qwen3_voice_design_approve_candidate():
     payload = request.get_json(silent=True) or {}

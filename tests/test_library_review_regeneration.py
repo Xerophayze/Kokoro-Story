@@ -135,8 +135,8 @@ def test_bulk_regeneration_uses_one_aggregate_watcher_and_cleans_it_up():
 def test_library_progress_assets_have_fresh_cache_versions():
     template = INDEX_TEMPLATE.read_text(encoding="utf-8")
 
-    assert "/static/css/style.css?v=40" in template
-    assert "/static/js/library.js?v=47" in template
+    assert "/static/css/style.css?v=41" in template
+    assert "/static/js/library.js?v=48" in template
 
 
 def test_full_story_pill_loads_combined_audio_and_busts_rebuild_cache():

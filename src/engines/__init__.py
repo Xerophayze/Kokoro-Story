@@ -23,7 +23,9 @@ _LAZY_EXPORTS = {
     "ElevenLabsEngine": (".elevenlabs_engine", "ElevenLabsEngine"),
     "OpenAITTSEngine": (".openai_tts_engine", "OpenAITTSEngine"),
     "LocalAITTSEngine": (".localai_tts_engine", "LocalAITTSEngine"),
+    "BreezeAPIEngine": (".breeze_api_engine", "BreezeAPIEngine"),
     "Audio8TTSEngine": (".audio8_tts_engine", "Audio8TTSEngine"),
+    "BreezeTTS2Engine": (".breeze_tts_2_engine", "BreezeTTS2Engine"),
 }
 
 
@@ -53,4 +55,5 @@ __all__ = [
     "OpenAITTSEngine",
     "LocalAITTSEngine",
     "Audio8TTSEngine",
+    "BreezeTTS2Engine",
 ]

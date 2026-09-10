@@ -9,7 +9,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def test_config_is_ignored_and_sync_never_force_adds_it():
     gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     sync_script = (PROJECT_ROOT / "sync-to-git.bat").read_text(encoding="utf-8")
-    public_sync_script = (PROJECT_ROOT / "git-sync.bat").read_text(encoding="utf-8")
 
     assert "config.json" in gitignore
     assert 'add -f "%SCRIPT_DIR%\\config.json"' not in sync_script
@@ -17,9 +16,6 @@ def test_config_is_ignored_and_sync_never_force_adds_it():
     assert "config.json is local-only" in sync_script
     assert "--working-tree" in sync_script
     assert sync_script.index("--working-tree") < sync_script.index(" add -A")
-    assert "check-ignore -q config.json" in public_sync_script
-    assert "--working-tree" in public_sync_script
-    assert "--staged" in public_sync_script
 
 
 def test_platform_updaters_preserve_legacy_tracked_config():

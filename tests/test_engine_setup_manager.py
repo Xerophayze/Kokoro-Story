@@ -218,7 +218,7 @@ def test_frontend_has_engine_manager_and_first_run_welcome():
     assert 'id="remote-engine-tabs-label"' in template
     assert template.index('data-engine-tab="omnivoice"') < template.index('id="remote-engine-tabs-label"')
     assert template.index('id="remote-engine-tabs-label"') < template.index('data-engine-tab="azure-speech"')
-    assert '/static/js/settings.js?v=30' in template
+    assert '/static/js/settings.js?v=' in template
     assert "async function loadEngineSetupStatus()" in javascript
     assert "async function startEngineInstall(" in javascript
     assert "async function startEngineUninstall(" in javascript

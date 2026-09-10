@@ -8,15 +8,20 @@ If you appreciate what we do and would like to support ongoing development:
 
 ---
 
-# Current Updates and Notes - updated 08-23-2026
+# Current Updates and Notes - updated 09-09-2026
 
+- **Breeze API production workflow** - use selected TTS-Story voice samples for hosted, directed narration. Samples are uploaded as needed, isolated by production, reused on resume, and explicitly released from Breeze after delivery while local voices and audio are preserved.
+- **More resilient Breeze generation** - longer voice-upload timeouts, recovery controls for interrupted uploads, and configurable speech retries that check Breeze history first. Uncertain history results stop automatic retries; missing history can still result in duplicate charges. Set retries to zero to disable them.
+- **Stronger directed-text validation** - improved speaker detection when closing tags are mistyped, visible speaker/direction mismatch warnings, and a targeted repair for speaker blocks incorrectly closed with `[/direction]`. Invalid tags are blocked before generation.
+
+### Previous Updates
+
+- **Breeze TTS 2 local integration** - PyTorch and community Q8 generation, voice design, cloning, and passage-level direction. Hosted commercial use requires an active paid subscription; local model restrictions still apply.
 - **Audio8 TTS integration** - added the compact multilingual Audio8 0.6B engine with isolated installation, 44.1 kHz output, transcript-conditioned voice cloning, safe chunk limits, and reproducible retry handling.
 - **On-demand TTS engine management** - initial setup now installs the lightweight TTS-Story core; local engines can be installed, removed, repaired, and monitored from Engine Settings, with each engine kept in its own isolated environment.
 - **LocalAI TTS integration** - connect to an existing self-hosted LocalAI server, discover compatible TTS models and server voices, or use transcript-ready reference voices from TTS-Story without installing duplicate model runtimes.
 - **Improved voice casting and speaker workflows** - strengthened Qwen3 voice-design prompts, added configurable candidates per speaker, improved bulk candidate generation, and made approved voice selections easier to review, filter, save, and reuse.
 - **More consistent projects and audiobook timing** - saved projects now use shared server-side storage across localhost, IP-address, and alternate browser URLs, while configurable pause-marker timing and improved section detection provide better control over narration structure.
-
-### Previous Updates
 
 - Smarter LLM failover, configurable backup profiles, and individual speaker-profile generation.
 - More reliable OmniVoice narration with protected sentence endings and configurable terminal buffers.
@@ -53,10 +58,10 @@ TTS-Story is a web-based, multi-voice text-to-speech application for creating na
 
 ## Highlights
 
-- Nineteen selectable TTS engine options spanning local CPU, local GPU, self-hosted, and cloud generation.
+- Twenty selectable TTS engine options spanning local CPU, local GPU, self-hosted, and cloud generation.
 - Multi-speaker narration using tags such as `[narrator]...[/narrator]` and `[alice-female]...[/alice-female]`.
-- Shared reference-voice library for Chatterbox, VoxCPM, Qwen3 Clone, OmniVoice, Pocket TTS Clone, IndexTTS, Dot.TTS, and Audio8 TTS.
-- Built-in voices, custom Kokoro blends, reference cloning, and Qwen3/OmniVoice voice-design workflows.
+- Shared reference-voice library for Chatterbox, VoxCPM, Qwen3 Clone, OmniVoice, Pocket TTS Clone, IndexTTS, Dot.TTS, Audio8 TTS, and Breeze TTS 2.
+- Built-in voices, custom Kokoro blends, reference cloning, and Qwen3/Breeze/OmniVoice voice-design workflows.
 - Optional text preparation with Gemini, Atlas Cloud, OpenRouter, LM Studio, or Ollama, including configurable backup profiles.
 - Automatic chapter/section detection, separate chapter exports, and optional combined Full Story output.
 - Job queue with progress, ETA, pause/resume, cancellation, retry handling, and recovery checkpoints.
@@ -115,7 +120,7 @@ setup.bat --repair
 
 ## Supported Engines and Hardware
 
-TTS-Story exposes nineteen normal generation choices. Qwen3 VoiceDesign and OmniVoice Design are additional Voice Creation workflows rather than full-job engines.
+TTS-Story exposes twenty normal generation choices. Qwen3 VoiceDesign and OmniVoice Design are additional Voice Creation workflows rather than full-job engines.
 
 ### Local engine hardware guide
 
@@ -133,6 +138,7 @@ The figures below are practical planning ranges for the current adapters and def
 | **[IndexTTS](docs/help/engines/index-tts.md)** | NVIDIA CUDA strongly recommended | Roughly **6–8 GB with FP16**; allow **10–12 GB** for FP32 | Selectable, but very slow | English/Chinese zero-shot cloning in an isolated environment. |
 | **[Dot.TTS](docs/help/engines/dots-tts.md)** | NVIDIA CUDA strongly recommended | Plan for roughly **10–12 GB** | Installation may work, but inference can be impractical | 2B-parameter, 48 kHz cloning model with multi-GB downloads. |
 | **[Audio8 TTS 0.6B](docs/help/engines/audio8-tts.md)** | NVIDIA CUDA recommended; CPU fallback | Benchmark pending; the BF16 model is compact but codec and generation state add overhead | Available in FP32, but potentially slow | 44.1 kHz multilingual cloning; exact reference transcript required; sentence-preserving soft and hard chunk limits. |
+| **[Breeze TTS 2](docs/help/engines/breeze-tts-2.md)** | NVIDIA CUDA required | About **7.7 GB** eager; **12 GB recommended**. Fast mode uses about **14.4 GB**; **24 GB recommended** | Not supported by the official runtime | English/Chinese voice design, cloning, and direction. Model weights and self-hosted outputs are research/non-commercial only. Linux is upstream-supported; native Windows integration is experimental. |
 
 ### Cloud engine requirements
 
@@ -145,6 +151,7 @@ Cloud engines perform model inference remotely and therefore require **no local 
 | **[Microsoft Azure Speech](docs/help/engines/azure-speech.md)** | **0 GB** | Azure Speech key, matching region, and quota | Supported regional service with usage billing. |
 | **[Microsoft Edge TTS](docs/help/engines/edge-tts.md)** | **0 GB** | Internet connection; no API key | Experimental consumer endpoint with no availability guarantee. |
 | **[ElevenLabs](docs/help/engines/elevenlabs.md)** | **0 GB** | API key, model/voice access, and character quota | Subscription and concurrency limits apply. |
+| **[Breeze API](docs/help/engines/breeze-api.md)** | **0 GB** | API key, credits, model and local sample or saved voice ID | Production-scoped uploads, cloning and passage direction. Commercial outputs require an active paid subscription at generation time, not just credits. Separate from local Breeze. |
 | **[OpenAI-compatible TTS](docs/help/engines/openai-tts.md)** | **0 GB** | Compatible endpoint, model, voice, and key when required | Cost and capabilities depend on the endpoint. |
 | **[LocalAI TTS](docs/help/engines/localai-tts.md)** | Depends on the LocalAI host | Running LocalAI server with a TTS model; key only if authentication is enabled | Discovers TTS models and saved profiles, while also accepting freeform voice/speaker IDs and language values for models that do not advertise a voice catalog. |
 

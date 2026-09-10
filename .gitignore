@@ -47,6 +47,15 @@ Thumbs.db
 .env.*
 !.env.example
 config.json
+# Local settings snapshots may contain the same credentials as config.json.
+config.json.*
+config[._-]*.bak
+config[._-]*.bak.*
+config[._-]*.backup
+config[._-]*.backup.*
+config[._-]*.old
+config[._-]*.orig
+config[._-]*.syncbak
 *.pem
 *.key
 *.p12
@@ -68,7 +77,10 @@ data/voice_prompts/*
 # Job data (user-generated, not for repo)
 jobs.db
 data/jobs/
+data/breeze_productions/
 data/prep/
+data/benchmarks/
+data/*-benchmark/
 data/chatterbox_voices.json
 data/localai_voice_profiles.json
 data/custom_voices.json
@@ -117,6 +129,10 @@ engines/dots-tts/.dots_tts_ready
 engines/dots-tts/repo/
 engines/dots-tts/models/
 engines/dots-tts/hf-cache/
+engines/breeze_tts_2/runtime/
+engines/breeze_tts_2/cpp-runtime/
+engines/breeze_tts_2/q8/
+engines/breeze_tts_2/.license_accepted
 
 # Temporary local dependency/debug artifacts
 /temp_requirements_filtered*.txt

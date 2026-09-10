@@ -1,0 +1,11 @@
+diff --git a/src/c_api.cpp b/src/c_api.cpp
+--- a/src/c_api.cpp
++++ b/src/c_api.cpp
+@@ -108,3 +108,7 @@
+ const char * breeze_last_error(void) {
+     return g_error.c_str();
+ }
++
++extern "C" BREEZE_API const char * breeze_backend_name(breeze_context * ctx) {
++    return ctx ? ctx->model.backend.name() : "none";
++}

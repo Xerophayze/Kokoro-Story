@@ -1,5 +1,8 @@
 import importlib.util
+import subprocess
 from pathlib import Path
+
+import pytest
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "check_repo_safety.py"
@@ -31,6 +34,35 @@ def test_allows_placeholders_and_tracked_engine_worker():
 
 def test_local_config_is_always_rejected_from_repository_content():
     assert SAFETY.path_problem("config.json") == "runtime or backup file"
+
+
+@pytest.mark.parametrize("path", [
+    "config.before-breeze-audible-only-20260906.json.bak",
+    "config.json.backup", "config.json.20260910", "config-before-test.json.bak",
+    "backups/config_snapshot.json.bak.20260910", "config.local.json.backup",
+    "config.local.json.old", "config.local.json.orig", "config.local.json.syncbak",
+    "data/benchmarks/run/results.json", "data/breeze-q8-benchmark/design.wav",
+    "engines/breeze_tts_2/runtime/model.py", "engines/breeze_tts_2/cpp-runtime/app.exe",
+    "engines/breeze_tts_2/q8/model.gguf", "engines/breeze_tts_2/.license_accepted",
+])
+def test_local_artifacts_are_ignored_and_rejected_if_force_staged(tmp_path, path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_bytes((MODULE_PATH.parents[1] / ".gitignore").read_bytes())
+    target = tmp_path / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("local data without any credential signature", encoding="utf-8")
+    assert SAFETY.path_problem(path)
+    ignored = subprocess.run(["git", "-C", str(tmp_path), "check-ignore", "-q", path])
+    assert ignored.returncode == 0
+    assert SAFETY.audit_working_tree(tmp_path) == []
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-f", "--", path], check=True)
+    assert any(path in failure for failure in SAFETY.audit_staged(tmp_path))
+
+
+@pytest.mark.parametrize("path", ["config.example.json", "config.default.json", "src/config_manager.py",
+                                      "scripts/benchmark_breeze.py", "docs/breeze-performance-review.md"])
+def test_backup_exclusions_preserve_source_and_templates(path):
+    assert SAFETY.path_problem(path) is None
 
 
 def test_detects_populated_config_secrets():

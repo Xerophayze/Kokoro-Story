@@ -22,6 +22,7 @@ from .engines.edge_tts_engine import EdgeTTSEngine
 from .engines.elevenlabs_engine import ElevenLabsEngine
 from .engines.openai_tts_engine import OpenAITTSEngine
 from .engines.localai_tts_engine import LocalAITTSEngine
+from .engines.breeze_api_engine import BreezeAPIEngine
 from .engines.isolated_proxy import ENGINE_DIRS, IsolatedEngineProxy
 from .engines.kokoro_engine import (
     DEFAULT_SAMPLE_RATE,
@@ -50,7 +51,9 @@ EngineRegistry: Dict[str, Type[TtsEngineBase]] = {
     "elevenlabs": ElevenLabsEngine,
     "openai_tts": OpenAITTSEngine,
     "localai_tts": LocalAITTSEngine,
+    "breeze_api": BreezeAPIEngine,
     "audio8_tts": IsolatedEngineProxy,
+    "breeze_tts_2": IsolatedEngineProxy,
 }
 AVAILABLE_ENGINES = tuple(EngineRegistry.keys())
 

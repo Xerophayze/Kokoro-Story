@@ -256,10 +256,10 @@ def test_speaker_properties_offers_single_profile_generation():
     assert "voice_design_prompt: buildLocalVoiceDesignPrompt(name, voice" in javascript
 
 
-def test_main_bundle_cache_key_includes_profile_migration_release():
+def test_main_bundle_cache_key_includes_latest_speaker_voice_routing_release():
     template = (PROJECT_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 
-    assert '/static/js/main.js?v=64' in template
+    assert '/static/js/main.js?v=68' in template
 
 
 def test_qwen_voice_generation_controls_require_optional_engine_installation(monkeypatch):
@@ -270,10 +270,10 @@ def test_qwen_voice_generation_controls_require_optional_engine_installation(mon
     assert 'id="generate-voices-btn" class="btn btn-secondary btn-sm" disabled' in template
     assert 'id="qwen-voice-generate-btn" disabled' in template
     assert 'data-role="speaker-generate-voice" disabled' in javascript
-    assert 'data-open-qwen3-settings' in template
-    assert 'data-open-qwen3-settings' in javascript
+    assert 'id="voice-creation-open-engine-settings"' in template
+    assert 'data-role="open-voice-design-settings"' in javascript
     assert "qwen3_voice_design_available" in javascript
-    assert "window.qwenVoiceDesignAvailable !== true" in voice_manager
+    assert "window.voiceDesignEngineAvailable?.(engine) !== true" in voice_manager
 
     monkeypatch.setattr(app_module, "isolated_engine_available", lambda _engine: False)
     client = app_module.app.test_client()
@@ -296,6 +296,41 @@ def test_voice_sample_assignments_survive_compatible_engine_switches():
     assert "Object.entries(turboSelectionState).forEach(([speaker, reference])" in javascript
 
 
+def test_breeze_generated_sample_is_synced_into_speaker_properties():
+    javascript = (PROJECT_ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
+
+    assert "function syncSpeakerReferenceAssignment(speaker, promptValue = '')" in javascript
+    assert "findSpeakerProfile(speaker).profile?.selected_voice_path" in javascript
+    assert "populateReferenceDropdown(select, 'Select Voice Sample...', engineName)" in javascript
+    assert "syncSpeakerReferenceAssignment(speaker, promptValue);" in javascript
+    assert "syncSpeakerReferenceAssignment(speaker);" in javascript
+
+
+def test_reference_sample_engines_never_expose_the_kokoro_voice_catalog():
+    javascript = (PROJECT_ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
+    stylesheet = (PROJECT_ROOT / "static" / "css" / "style.css").read_text(encoding="utf-8")
+    template = (PROJECT_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+
+    assert "const usesReferenceSamples = isPromptEngine(engineName);" in javascript
+    assert "kokoroControl.hidden = !showCatalogControl;" in javascript
+    assert "turboControl.hidden = !showReferenceControl;" in javascript
+    assert "select.innerHTML = '<option value=\"\">Voice samples are listed below</option>';" in javascript
+    assert ".assignment-selection-group [data-role][hidden]" in stylesheet
+    assert "/static/css/style.css?v=41" in template
+    assert "/static/js/main.js?v=68" in template
+
+
+def test_generated_voice_refresh_updates_available_voices_library():
+    main = (PROJECT_ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
+    manager = (PROJECT_ROOT / "static" / "js" / "voice-manager.js").read_text(encoding="utf-8")
+    template = (PROJECT_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+
+    assert "window.dispatchEvent(new CustomEvent(CHATTERBOX_VOICES_EVENT_NAME" in main
+    assert "window.addEventListener(CHATTERBOX_VOICES_EVENT" in manager
+    assert "chatterboxVoices = event.detail.voices" in manager
+    assert '/static/js/voice-manager.js?v=18' in template
+
+
 def test_voice_candidate_count_defaults_to_one_and_is_configurable():
     javascript = (PROJECT_ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
 
@@ -311,7 +346,8 @@ def test_bulk_generation_exposes_and_applies_candidate_count():
 
     assert 'id="speaker-batch-candidate-count"' in template
     assert "Candidates per speaker" in template
-    assert "updateSpeakerProfileEntry(speaker, { voice_candidate_count: batchCandidateCount })" in javascript
+    assert "voice_candidate_count: batchCandidateCount" in javascript
+    assert "voice_design_engine: batchDesignEngine" in javascript
 
 
 def test_project_schema_persists_casting_and_engine_state():
@@ -337,14 +373,17 @@ def test_project_schema_persists_casting_and_engine_state():
         assert fragment in javascript
 
 
-def test_bulk_voice_generation_is_locked_to_qwen3():
+def test_bulk_voice_generation_supports_qwen3_and_breeze():
     template = (PROJECT_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
     javascript = (PROJECT_ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
 
-    assert "Qwen3-TTS VoiceDesign" in template
+    assert 'id="speaker-batch-design-engine"' in template
+    assert '<option value="breeze" data-voice-design-option>Breeze TTS 2</option>' in template
     assert 'id="batch-engine-omnivoice-btn"' not in template
     assert "'/api/qwen3/voice-design/preview'" in javascript
     assert "'/api/qwen3/voice-design/save'" in javascript
+    assert "'/api/breeze/voice-design/preview'" in javascript
+    assert "'/api/breeze/voice-design/save'" in javascript
     assert "createVoiceDesignCandidateSeed()" in javascript
     assert "batchVoiceEngine" not in javascript
 

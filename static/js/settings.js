@@ -58,6 +58,10 @@ let activeEngineManagementJobId = null;
 document.addEventListener('DOMContentLoaded', async () => {
     await loadSettings();
     setupSettingsListeners();
+    document.getElementById('breeze-q8-install')?.addEventListener('click', event => {
+        const status = document.querySelector('#engine-panel-breeze-tts-2 .engine-setup-status');
+        startEngineInstall('breeze_tts_2', status, event.currentTarget, 'q8');
+    });
     await loadEngineSetupStatus();
     await initializeFirstRunWelcome();
 });
@@ -112,6 +116,13 @@ function engineStatusForTab(tabName) {
 }
 
 function renderEngineSetupStatus() {
+    const breezeStatus = engineSetupCatalog.find(engine => engine.id === 'breeze_tts_2');
+    const breezeLicense = document.getElementById('breeze-tts-2-license-accept');
+    if (breezeLicense && breezeStatus?.license_accepted) breezeLicense.checked = true;
+    const q8Status = document.getElementById('breeze-q8-status');
+    if (q8Status) q8Status.textContent = breezeStatus?.q8_ready
+        ? 'Q8 installed. Choose Q8 GGUF above and save Settings to use it.'
+        : 'Q8 is not installed. Use Install / Repair Q8 below.';
     document.querySelectorAll('.engine-tab-btn[data-engine-tab]').forEach(button => {
         const entries = engineStatusForTab(button.dataset.engineTab);
         button.classList.remove('engine-status-ready', 'engine-status-missing');
@@ -195,6 +206,7 @@ function engineManagementUi(job) {
         job.action === 'uninstall' ? '[data-uninstall-engine]' : '[data-install-engine]'
     );
     button ||= statusElement.querySelector('[data-install-engine], [data-uninstall-engine]');
+    if (job.runtime === 'q8') button = document.getElementById('breeze-q8-install') || button;
     let output = statusElement.querySelector('.engine-install-output');
     if (!output) {
         output = document.createElement('pre');
@@ -205,7 +217,7 @@ function engineManagementUi(job) {
 }
 
 function setEngineManagementBusy(job, busy = true) {
-    document.querySelectorAll('[data-install-engine], [data-uninstall-engine]').forEach(button => {
+    document.querySelectorAll('[data-install-engine], [data-uninstall-engine], #breeze-q8-install').forEach(button => {
         button.disabled = busy;
         if (busy) button.title = 'Another engine installation or removal is currently running.';
         else button.removeAttribute('title');
@@ -343,8 +355,17 @@ async function restartTtsStoryBackend(button) {
     }
 }
 
-async function startEngineInstall(engine, statusElement, button) {
+async function startEngineInstall(engine, statusElement, button, runtime = null) {
     if (!engine || !statusElement || !button) return;
+    runtime ||= engine === 'breeze_tts_2'
+        ? (document.getElementById('breeze-tts-2-runtime')?.value || 'pytorch') : 'pytorch';
+    const licenseAccepted = engine === 'breeze_tts_2'
+        ? Boolean(document.getElementById('breeze-tts-2-license-accept')?.checked)
+        : undefined;
+    if (engine === 'breeze_tts_2' && !licenseAccepted) {
+        alert('Review and accept the BreezeBlue Research and Non-Commercial License before installing Breeze TTS 2.');
+        return;
+    }
     button.disabled = true;
     button.textContent = 'Starting...';
     let output = statusElement.querySelector('.engine-install-output');
@@ -358,7 +379,7 @@ async function startEngineInstall(engine, statusElement, button) {
         const response = await fetch('/api/engines/install', {
             method: 'POST',
             headers: engineManagementHeaders({ json: true }),
-            body: JSON.stringify({ engine }),
+            body: JSON.stringify({ engine, license_accepted: licenseAccepted, runtime }),
         });
         const data = await response.json();
         if (response.status === 409 && data.job_id) {
@@ -1175,6 +1196,7 @@ function toggleEngineSettingsSections(engineName) {
         'index_tts': 'index-tts',
         'dots_tts': 'dots-tts',
         'audio8_tts': 'audio8-tts',
+        'breeze_tts_2': 'breeze-tts-2',
         'azure_speech': 'azure-speech',
         'edge_tts': 'edge-tts',
         'elevenlabs': 'elevenlabs',
@@ -2068,6 +2090,7 @@ function applySettings(settings) {
         'Edge voices'
     );
     setElementValue('elevenlabs-api-key', settings.elevenlabs_api_key || '');
+    window.loadBreezeApiSettings?.(settings);
     setElementValue('elevenlabs-base-url', settings.elevenlabs_base_url || ELEVENLABS_BASE_URL, ELEVENLABS_BASE_URL);
     setElementValue('elevenlabs-output-format', settings.elevenlabs_output_format || 'mp3_44100_128');
     setElementValue('elevenlabs-timeout', settings.elevenlabs_timeout ?? 120, 120);
@@ -2524,6 +2547,27 @@ function applySettings(settings) {
         const input = document.getElementById(id);
         if (input) input.value = value;
     });
+    const breezeValues = {
+        'breeze-tts-2-model-id': settings.breeze_tts_2_model_id || 'BreezeBlue/Breeze-TTS-2',
+        'breeze-tts-2-runtime': settings.breeze_tts_2_runtime || 'pytorch',
+        'breeze-tts-2-device': settings.breeze_tts_2_device || 'auto',
+        'breeze-tts-2-seed': settings.breeze_tts_2_seed ?? 42,
+        'breeze-tts-2-clone-cfg': settings.breeze_tts_2_clone_cfg_scale ?? 1,
+        'breeze-tts-2-design-cfg': settings.breeze_tts_2_design_cfg_scale ?? 4,
+        'breeze-tts-2-direction-cfg': settings.breeze_tts_2_direction_cfg_scale ?? 4,
+        'breeze-tts-2-max-new-tokens': settings.breeze_tts_2_max_new_tokens ?? 1500,
+        'breeze-tts-2-max-seq-len': settings.breeze_tts_2_max_seq_len ?? 2048,
+        'breeze-tts-2-default-prompt': settings.breeze_tts_2_default_prompt || '',
+        'breeze-tts-2-default-prompt-text': settings.breeze_tts_2_default_prompt_text || '',
+        'breeze-tts-2-default-instruction': settings.breeze_tts_2_default_instruction || 'Speak clearly and naturally.',
+        'breeze-tts-2-chunk-size': settings.breeze_tts_2_chunk_size ?? 500,
+    };
+    Object.entries(breezeValues).forEach(([id, value]) => {
+        const input = document.getElementById(id);
+        if (input) input.value = value;
+    });
+    const breezeFastMode = document.getElementById('breeze-tts-2-fast-mode');
+    if (breezeFastMode) breezeFastMode.checked = settings.breeze_tts_2_fast_mode === true;
 
     // Chatterbox Replicate settings (uses shared replicate_api_key)
     const turboModelInput = document.getElementById('chatterbox-turbo-replicate-model');
@@ -2644,6 +2688,7 @@ async function saveSettings() {
         edge_tts_chunk_size: Math.max(100, Math.min(5000, parseInt(document.getElementById('edge-tts-chunk-size')?.value, 10) || 1000)),
         edge_tts_default_volume: Math.max(-100, Math.min(100, parseInt(document.getElementById('edge-tts-default-volume')?.value, 10) || 0)),
         elevenlabs_api_key: document.getElementById('elevenlabs-api-key')?.value || '',
+        ...window.collectBreezeApiSettings?.(),
         elevenlabs_base_url: document.getElementById('elevenlabs-base-url')?.value?.trim() || ELEVENLABS_BASE_URL,
         elevenlabs_model: document.getElementById('elevenlabs-model')?.value || 'eleven_multilingual_v2',
         elevenlabs_default_voice: document.getElementById('elevenlabs-default-voice')?.value || 'JBFqnCBsd6RMkjVDRZzb',
@@ -2823,6 +2868,20 @@ async function saveSettings() {
         audio8_tts_default_prompt_text: document.getElementById('audio8-tts-default-prompt-text')?.value || '',
         audio8_tts_chunk_size: parseInt(document.getElementById('audio8-tts-chunk-size')?.value, 10) || 140,
         audio8_tts_hard_chunk_size: parseInt(document.getElementById('audio8-tts-hard-chunk-size')?.value, 10) || 400,
+        breeze_tts_2_model_id: document.getElementById('breeze-tts-2-model-id')?.value || 'BreezeBlue/Breeze-TTS-2',
+        breeze_tts_2_runtime: document.getElementById('breeze-tts-2-runtime')?.value || 'pytorch',
+        breeze_tts_2_device: document.getElementById('breeze-tts-2-device')?.value || 'auto',
+        breeze_tts_2_seed: parseInt(document.getElementById('breeze-tts-2-seed')?.value, 10) || 42,
+        breeze_tts_2_clone_cfg_scale: parseFloat(document.getElementById('breeze-tts-2-clone-cfg')?.value) || 1,
+        breeze_tts_2_design_cfg_scale: parseFloat(document.getElementById('breeze-tts-2-design-cfg')?.value) || 4,
+        breeze_tts_2_direction_cfg_scale: parseFloat(document.getElementById('breeze-tts-2-direction-cfg')?.value) || 4,
+        breeze_tts_2_max_new_tokens: parseInt(document.getElementById('breeze-tts-2-max-new-tokens')?.value, 10) || 1500,
+        breeze_tts_2_max_seq_len: parseInt(document.getElementById('breeze-tts-2-max-seq-len')?.value, 10) || 2048,
+        breeze_tts_2_fast_mode: document.getElementById('breeze-tts-2-fast-mode')?.checked ?? false,
+        breeze_tts_2_default_prompt: document.getElementById('breeze-tts-2-default-prompt')?.value || '',
+        breeze_tts_2_default_prompt_text: document.getElementById('breeze-tts-2-default-prompt-text')?.value || '',
+        breeze_tts_2_default_instruction: document.getElementById('breeze-tts-2-default-instruction')?.value || 'Speak clearly and naturally.',
+        breeze_tts_2_chunk_size: parseInt(document.getElementById('breeze-tts-2-chunk-size')?.value, 10) || 500,
         chatterbox_turbo_replicate_model: document.getElementById('chatterbox-turbo-replicate-model').value,
         chatterbox_turbo_replicate_voice: document.getElementById('chatterbox-turbo-replicate-voice').value,
         chatterbox_turbo_replicate_temperature: parseFloat(document.getElementById('chatterbox-turbo-replicate-temperature').value) || 0.8,
@@ -3048,6 +3107,20 @@ async function resetSettings() {
         audio8_tts_default_prompt_text: '',
         audio8_tts_chunk_size: 140,
         audio8_tts_hard_chunk_size: 400,
+        breeze_tts_2_model_id: 'BreezeBlue/Breeze-TTS-2',
+        breeze_tts_2_runtime: 'pytorch',
+        breeze_tts_2_device: 'auto',
+        breeze_tts_2_seed: 42,
+        breeze_tts_2_clone_cfg_scale: 1,
+        breeze_tts_2_design_cfg_scale: 4,
+        breeze_tts_2_direction_cfg_scale: 4,
+        breeze_tts_2_max_new_tokens: 1500,
+        breeze_tts_2_max_seq_len: 2048,
+        breeze_tts_2_fast_mode: false,
+        breeze_tts_2_default_prompt: '',
+        breeze_tts_2_default_prompt_text: '',
+        breeze_tts_2_default_instruction: 'Speak clearly and naturally.',
+        breeze_tts_2_chunk_size: 500,
         remote_engine_management_enabled: false,
         remote_engine_management_token: ''
     };

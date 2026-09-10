@@ -1,6 +1,6 @@
 # Engine Reference and Comparison
 
-TTS-Story offers nineteen normal generation choices. Qwen3 VoiceDesign and OmniVoice Design are additional Voice Creation workflows rather than full-job engines.
+TTS-Story offers local engines and remote providers, including Breeze API for hosted directed narration. Qwen3 VoiceDesign and the other voice-design workflows create reusable speaker samples rather than full audiobooks.
 
 Choose an engine for the voice source you need first, then consider hardware, language, privacy, and cost. A fast engine with the wrong voice is rarely the best choice for a long project.
 
@@ -26,6 +26,7 @@ Ready local engines can be removed from the same panel. **Uninstall Engine** rem
 | IndexTTS | Local CUDA recommended | Reference clone | English/Chinese zero-shot cloning | Isolated runtime; many performance controls |
 | Dot.TTS | Local CUDA strongly recommended | Reference clone plus transcript | High-quality 48 kHz cloning | 2B model, long first run, clean transcript-dependent prompt |
 | Audio8 TTS | Local CUDA recommended | Reference clone plus exact transcript, or unconditioned speech | Compact multilingual 44.1 kHz cloning | Preview model; 150 characters is the preferred target, with configurable sentence-preserving overflow |
+| Breeze TTS 2 | Local NVIDIA CUDA | Written voice design or transcript-ready reference voice | English/Chinese design, cloning, and passage-level delivery direction | Research/non-commercial output only; 12 GB VRAM recommended; Linux upstream support |
 | Azure AI Speech | Cloud | Voices discovered from an Azure region | Supported production cloud speech, styles, roles, and SSML prosody | Azure account, key, region, and usage billing |
 | Edge TTS | Cloud, experimental | Microsoft's current consumer voice catalog | No-key testing and personal use | Unofficial service with no availability guarantee |
 | ElevenLabs | Cloud | Voices and models available to the account | Polished hosted voices and continuity | API key, quota, subscription limits, and character cost |
@@ -37,7 +38,7 @@ OmniVoice Design is available through [Voice Creation](help:voice-creation). It 
 ## Hardware and privacy
 
 - **Easiest CPU choices:** KittenTTS, Pocket TTS Preset, and Kokoro. Kokoro can also use CUDA.
-- **GPU-focused local choices:** Chatterbox Turbo, VoxCPM 1.5, Qwen3-TTS, OmniVoice, IndexTTS, Dot.TTS, and Audio8 TTS. Some adapters permit CPU selection, but large-model generation can be impractically slow.
+- **GPU-focused local choices:** Chatterbox Turbo, VoxCPM 1.5, Qwen3-TTS, OmniVoice, IndexTTS, Dot.TTS, Audio8 TTS, and Breeze TTS 2. Some adapters permit CPU selection, but large-model generation can be impractically slow. Breeze requires NVIDIA CUDA in its official runtime.
 - **Cloud and remote choices:** the two Replicate engines, Azure Speech, Edge TTS, ElevenLabs, OpenAI-compatible TTS, and LocalAI use another service endpoint. No TTS inference GPU is required on the TTS-Story host, although a LocalAI server on the same computer still shares that computer's resources.
 - **Private after download:** local engines keep manuscript and generated speech on this computer. Initial installation, model downloads, and optional model updates still contact package or model hosts.
 - **Cloud boundary:** cloud engines send the text being spoken to the provider. Cloning engines also send their reference audio when the provider performs synthesis.

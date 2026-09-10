@@ -139,7 +139,7 @@ def test_audio_job_filters_pause_markers_before_calling_any_tts_engine():
     assert "pause_seconds_for_text(" in generation
     assert 'config.get("pause_marker_three_seconds", 0.25)' in generation
     assert 'config.get("pause_marker_six_seconds", 0.5)' in generation
-    assert '"segments": render_segments if has_pause_markers else segments' in generation
+    assert '"segments": render_segments' in generation
     assert "write_silence_wav(" in generation
     assert "commit_pauses_before" in generation
 

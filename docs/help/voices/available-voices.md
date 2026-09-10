@@ -4,14 +4,14 @@ Open [Available Voices](app:voices) to maintain reusable voices before assigning
 
 1. **Kokoro Voices** for built-in voice previews.
 2. **Custom Kokoro Voice Blends** for weighted combinations of compatible Kokoro voices.
-3. **Voice Creation** for designing a sample with Qwen3-TTS or OmniVoice.
+3. **Voice Creation** for designing a sample with Qwen3-TTS, Breeze TTS 2, or OmniVoice.
 4. **Voice Prompts** for uploaded or generated reference clips used by cloning engines.
 
 ![Available Voices page with the Kokoro voice catalog and preview controls](../../../static/help/screenshots/kokoro-voice-browser.png)
 
 *Available Voices groups built-in catalogs, custom blends, designed voices, and reusable reference prompts in one workspace.*
 
-These voice types are not interchangeable. A Kokoro voice code is selected from a built-in list, while a cloning engine expects a reference audio file. Qwen3 and OmniVoice design create audio that is then saved into the same reference-prompt library.
+These voice types are not interchangeable. A Kokoro voice code is selected from a built-in list, while a cloning engine expects a reference audio file. Qwen3, Breeze, and OmniVoice design create audio that is then saved into the same reference-prompt library.
 
 ## Built-in voices
 
@@ -27,9 +27,9 @@ The Voice Prompts manager supports uploading, bulk importing, previewing, metada
 
 ## Designed voices
 
-Qwen3-TTS and OmniVoice can synthesize a voice from written characteristics. Generate a preview, listen to it, and save an acceptable result to Voice Prompts. Saved output becomes a reference clip; the design mode itself is not selected as a normal narration engine on Generate.
+Qwen3-TTS, Breeze TTS 2, and OmniVoice can synthesize a voice from written characteristics. Generate a preview, listen to it, and save an acceptable result to Voice Prompts. Saved output becomes a reference clip; the design mode itself is not selected as a normal narration engine on Generate.
 
-See [Create Voices with Qwen3 or OmniVoice](help:voice-creation).
+See [Create Voices with Qwen3, Breeze, or OmniVoice](help:voice-creation).
 
 ## Local and external prompt libraries
 

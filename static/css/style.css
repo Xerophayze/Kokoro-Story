@@ -1646,6 +1646,10 @@ audio {
     gap: 6px;
 }
 
+.assignment-selection-group [data-role][hidden] {
+    display: none !important;
+}
+
 .voice-sample-row {
     display: flex;
     align-items: center;

@@ -38,6 +38,8 @@ On [Generate](app:generate), use the prompt selector beside **Prep Text**:
 
 The prompt determines how aggressively the model edits. If exact wording matters, explicitly require preservation of all prose, dialogue, names, paragraph order, and chapter headings. Avoid asking for broad “improvement” unless rewriting is acceptable.
 
+When preparing a project for Breeze TTS 2 Voice Direction, add a focused instruction such as: “Where a meaningful performance change is needed, insert one concise `[direction]...[/direction]` immediately before the affected speaker block. Describe only audible delivery—tone, pace, volume, emphasis, and emotion. Do not rewrite the spoken text, and do not add directions to ordinary passages.” Review every generated direction before synthesis.
+
 Read [Prompt Presets, Chunking, and Review](help:llm-prompts) before processing a full book.
 
 ## What happens during preparation

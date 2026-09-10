@@ -7,6 +7,7 @@ the project's optional dependencies are installed.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import re
 import subprocess
@@ -15,6 +16,7 @@ from pathlib import Path, PurePosixPath
 
 
 SECRET_CONFIG_KEYS = {
+    "breeze_api_key",
     "atlas_cloud_api_key",
     "openrouter_api_key",
     "azure_speech_key",
@@ -53,7 +55,9 @@ FORBIDDEN_PREFIXES = (
     "data/engine-installs/",
     "data/external_voices/",
     "data/jobs/",
+    "data/breeze_productions/",
     "data/prep/",
+    "data/benchmarks/",
     "data/voice_prompts/",
     "engines/dots-tts/.venv/",
     "engines/dots-tts/hf-cache/",
@@ -115,6 +119,14 @@ PLACEHOLDER_SECRET_TERMS = (
 
 RUNTIME_DIRECTORY_NAMES = {".venv", "venv", "venv.old", "env", "__pycache__"}
 
+# Mirror the local settings snapshot exclusions, but also reject forced staging.
+CONFIG_BACKUP_PATTERNS = (
+    "config.json.*",
+    "config[._-]*.bak", "config[._-]*.bak.*",
+    "config[._-]*.backup", "config[._-]*.backup.*",
+    "config[._-]*.old", "config[._-]*.orig", "config[._-]*.syncbak",
+)
+
 
 def normalize_path(path: str) -> str:
     normalized = PurePosixPath(path.replace("\\", "/")).as_posix()
@@ -130,17 +142,21 @@ def path_problem(path: str) -> str | None:
 
     if lowered in FORBIDDEN_EXACT_PATHS:
         return "runtime or backup file"
+    if any(fnmatch.fnmatchcase(name, pattern) for pattern in CONFIG_BACKUP_PATTERNS):
+        return "local configuration backup (may contain credentials)"
     if lowered.startswith("temp_requirements_filtered") and name.endswith(".txt"):
         return "temporary dependency file"
     if lowered in ALLOWED_GENERATED_PLACEHOLDERS or lowered in ALLOWED_PREFIX_EXCEPTIONS:
         return None
     parts = PurePosixPath(lowered).parts
+    if len(parts) >= 3 and parts[0] == "data" and parts[1].endswith("-benchmark"):
+        return "local benchmark output"
     if any(part in RUNTIME_DIRECTORY_NAMES for part in parts):
         return "virtual environment or generated Python cache"
     if len(parts) >= 3 and parts[0] == "engines":
-        if any(part in {"cache", "hf-cache", "models", "repo"} for part in parts[2:]):
+        if any(part in {"cache", "hf-cache", "models", "repo", "runtime", "cpp-runtime", "q8"} for part in parts[2:]):
             return "downloaded engine cache, model, or source repository"
-        if name == ".ready" or (name.startswith(".") and name.endswith("_ready")):
+        if name in {".ready", ".license_accepted"} or (name.startswith(".") and name.endswith("_ready")):
             return "local engine installation marker"
     if any(lowered.startswith(prefix) for prefix in FORBIDDEN_PREFIXES):
         return "generated, downloaded, or user-data directory"

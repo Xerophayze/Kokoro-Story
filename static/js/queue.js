@@ -295,7 +295,9 @@ const TURBO_ENGINES = new Set([
     'qwen3_clone',
     'omnivoice_clone',
     'dots_tts',
-    'audio8_tts'
+    'audio8_tts',
+    'breeze_tts_2',
+    'breeze_api'
 ]);
 const CHATTERBOX_ENGINES = new Set(['chatterbox', ...TURBO_ENGINES]);
 
@@ -303,7 +305,7 @@ function normalizeEngineName(engine) {
     return (engine || '').toLowerCase();
 }
 
-function isTurboEngine(engine) {
+function isQueueReferenceEngine(engine) {
     return TURBO_ENGINES.has(normalizeEngineName(engine));
 }
 
@@ -652,14 +654,16 @@ function buildKokoroVoiceOptions(selectedVoice) {
 }
 
 function buildChatterboxVoiceOptions(selectedPrompt) {
+    const productionOption = selectedPrompt && /breeze_productions[\\/]/.test(selectedPrompt)
+        ? `<option value="${escapeHtml(selectedPrompt)}" selected>Production sample (current)</option>` : '';
     if (!availableChatterboxVoicesCache.length) {
-        return '<option value="">No saved Chatterbox voices</option>';
+        return productionOption || '<option value="">No saved Chatterbox voices</option>';
     }
     // Sort voices alphabetically by name
     const sortedVoices = [...availableChatterboxVoicesCache].sort((a, b) =>
         (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase())
     );
-    return sortedVoices
+    return productionOption + sortedVoices
         .map(entry => {
             const promptPath = (entry?.prompt_path || entry?.file_name || '').trim();
             if (!promptPath) {
@@ -736,7 +740,7 @@ function renderChatterboxVoiceControl(jobId, chunk, engine) {
     const optionMarkup = hasVoices
         ? buildChatterboxVoiceOptions(selectedPrompt)
         : '<option value="">No saved voices available</option>';
-    const labelText = isTurboEngine(engine) ? 'Turbo reference prompt' : 'Chatterbox voice prompt';
+    const labelText = isQueueReferenceEngine(engine) ? 'Voice sample' : 'Chatterbox voice prompt';
     return `
         <div class="chunk-row-voice">
             <label for="chunk-voice-${chunk.id}">${labelText}</label>
@@ -962,7 +966,7 @@ function displayQueue(data) {
         const canPause = job.status === 'queued' || job.status === 'processing';
         const canResume = job.status === 'paused'
             || job.status === 'interrupted'
-            || (job.status === 'failed' && Number(job.processed_chunks || 0) > 0);
+            || (job.status === 'failed' && (Number(job.processed_chunks || 0) > 0 || job.engine === 'breeze_api'));
         const canDelete = job.status !== 'processing' && job.status !== 'pausing';
 
         html += `
@@ -1114,7 +1118,7 @@ async function openJobDetailsModal(jobId) {
         const completedAt = (job.completed_at || tm.completed_at)
             ? fmtTime(job.completed_at || tm.completed_at)
             : (isLive ? '<span style="color:var(--accent,#7eb8f7);font-style:italic">In progress…</span>' : 'N/A');
-        const totalTimeLabel = (job.completed_at || tm.completed_at) ? 'Total Job Time' : 'Elapsed Time';
+        const totalTimeLabel = 'Active Time (all runs)';
         const totalTime = fmtDuration(tm.total_seconds);
         const avgChunk = tm.avg_chunk_seconds != null ? fmtDuration(tm.avg_chunk_seconds) : 'N/A';
         const minChunk = tm.min_chunk_seconds != null ? fmtDuration(tm.min_chunk_seconds) : 'N/A';
@@ -1261,6 +1265,7 @@ function renderJobProgress(job) {
 
     return `
         <div class="queue-progress">
+            ${job.status === 'processing' && job.breeze_voice_status ? `<div>${escapeHtml(job.breeze_voice_status)}</div>` : ''}
             <div class="queue-progress-header">
                 <span>${chunkLabel}</span>
                 <span>${etaLabel}</span>

@@ -22,6 +22,7 @@ ISOLATED_ENGINES = {
     "kitten_tts": "kitten_tts.txt",
     "edge_tts": "edge_tts.txt",
     "audio8_tts": "audio8_tts.txt",
+    "breeze_tts_2": "breeze_tts_2.txt",
 }
 TORCH_ENGINES = {"kokoro", "voxcpm_local", "pocket_tts", "qwen3", "audio8_tts"}
 ISOLATED_AUDIO_RUNTIME = [
@@ -43,6 +44,7 @@ MAIN_ENV_PACKAGES = {
     "kitten_tts": ["kittentts"],
     "edge_tts": ["edge-tts"],
     "audio8_tts": [],
+    "breeze_tts_2": [],
 }
 ENGINE_MODEL_PATHS = {
     "voxcpm_local": [ROOT / "models" / "voxcpm"],
@@ -54,6 +56,7 @@ ENGINE_HF_REPOS = {
     "kokoro": ["hexgrad/Kokoro-82M"],
     "chatterbox_turbo_local": ["ResembleAI/chatterbox-turbo"],
     "pocket_tts": ["kyutai/pocket-tts", "kyutai/pocket-tts-without-voice-cloning"],
+    "breeze_tts_2": ["BreezeBlue/Breeze-TTS-2"],
 }
 
 
@@ -124,6 +127,7 @@ def remove_isolated_runtime(engine: str, *, dry_run: bool = False) -> None:
         "kitten_tts": "kitten_tts",
         "edge_tts": "edge_tts",
         "audio8_tts": "audio8_tts",
+        "breeze_tts_2": "breeze_tts_2",
     }
     engine_dir = ROOT / "engines" / directories[engine]
     preserved_by_engine = {
@@ -245,6 +249,44 @@ def install_torch(python: Path = Path(sys.executable), *, isolated_28: bool = Fa
 
 def install_isolated_engine(engine: str) -> None:
     engine_dir = ROOT / "engines" / engine
+    if engine == "breeze_tts_2":
+        if not (engine_dir / ".license_accepted").is_file():
+            raise RuntimeError(
+                "Breeze TTS 2 requires acceptance of the BreezeBlue Research and "
+                "Non-Commercial License in Settings before installation."
+            )
+        if sys.platform == "darwin" or not has_nvidia():
+            raise RuntimeError(
+                "The official Breeze TTS 2 runtime currently requires an NVIDIA CUDA GPU."
+            )
+        python = ensure_venv(engine_dir / ".venv")
+        runtime_dir = engine_dir / "runtime"
+        if not (runtime_dir / "breeze_infer" / "runtime.py").is_file():
+            if runtime_dir.exists():
+                shutil.rmtree(runtime_dir, onerror=_remove_readonly)
+            runtime_dir.parent.mkdir(parents=True, exist_ok=True)
+            run([
+                "git", "clone", "--depth", "1",
+                "https://github.com/breezeblue-ai/breeze-tts.git",
+                str(runtime_dir),
+            ])
+        run([
+            str(python), "-m", "pip", "install", "--upgrade",
+            "torch==2.9.1", "torchaudio==2.9.1",
+            "--index-url", "https://download.pytorch.org/whl/cu128",
+        ])
+        run([str(python), "-m", "pip", "install", *ISOLATED_AUDIO_RUNTIME])
+        requirement = ENGINE_REQUIREMENTS / ISOLATED_ENGINES[engine]
+        run([str(python), "-m", "pip", "install", "-r", str(requirement)])
+        worker = ROOT / "engines" / "isolated_engine_worker.py"
+        run([str(python), str(worker), "--engine", engine, "--check-env"])
+        (engine_dir / ".ready").touch()
+        print(
+            "Breeze TTS 2 is installed in its isolated environment. "
+            "The non-commercial model files download on first use.",
+            flush=True,
+        )
+        return
     python = ensure_venv(engine_dir / ".venv")
     if engine in TORCH_ENGINES:
         install_torch(python)
@@ -348,11 +390,28 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--uninstall", action="store_true", help="remove the selected engine and its model files")
     parser.add_argument("--dry-run", action="store_true", help="show removal actions without changing files")
+    parser.add_argument(
+        "--accept-breeze-license",
+        action="store_true",
+        help="record acceptance of the BreezeBlue Research and Non-Commercial License",
+    )
     parser.add_argument("engine", choices=sorted(SUPPORTED_ENGINES))
+    parser.add_argument('--breeze-runtime', choices=['pytorch', 'q8'], default='pytorch')
     args = parser.parse_args()
     try:
+        if args.engine == "breeze_tts_2" and args.accept_breeze_license:
+            license_marker = ROOT / "engines" / "breeze_tts_2" / ".license_accepted"
+            license_marker.parent.mkdir(parents=True, exist_ok=True)
+            license_marker.write_text(
+                "Accepted BreezeBlue Research and Non-Commercial License via installer.\n",
+                encoding="utf-8",
+            )
         if args.uninstall:
             uninstall(args.engine, dry_run=args.dry_run)
+        elif args.engine == 'breeze_tts_2' and args.breeze_runtime == 'q8':
+            from install_breeze_q8 import install as install_q8
+            install_q8()
+            print('\nENGINE_INSTALL_COMPLETE', flush=True)
         else:
             install(args.engine)
     except (OSError, RuntimeError, subprocess.CalledProcessError, ValueError) as exc:

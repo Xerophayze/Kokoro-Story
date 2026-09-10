@@ -1,0 +1,6 @@
+qwen-tts==0.1.1
+transformers==4.57.3
+numpy>=2.0
+soundfile>=0.13
+huggingface-hub>=0.36
+safetensors>=0.5

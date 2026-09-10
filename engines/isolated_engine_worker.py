@@ -68,6 +68,9 @@ def engine_class(engine: str):
     if engine == "audio8_tts":
         from src.engines.audio8_tts_engine import Audio8TTSEngine
         return Audio8TTSEngine
+    if engine == "breeze_tts_2":
+        from src.engines.breeze_tts_2_engine import BreezeTTS2Engine
+        return BreezeTTS2Engine
     raise ValueError(f"Unsupported isolated engine: {engine}")
 
 
@@ -78,10 +81,12 @@ def filtered_call(function, **kwargs):
     return function(**{key: value for key, value in kwargs.items() if key in signature.parameters})
 
 
-def run_job(job: dict) -> None:
+def run_job(job: dict, engine=None) -> None:
     engine_name = str(job["engine"])
-    configure_cache(engine_name)
-    engine = engine_class(engine_name)(**(job.get("constructor") or {}))
+    owns_engine = engine is None
+    if owns_engine:
+        configure_cache(engine_name)
+        engine = engine_class(engine_name)(**(job.get("constructor") or {}))
     emit({
         "event": "engine_ready",
         "device": getattr(engine, "device", "unknown"),
@@ -132,8 +137,32 @@ def run_job(job: dict) -> None:
         raise ValueError(f"Unsupported operation: {operation}")
     finally:
         cleanup = getattr(engine, "cleanup", None)
-        if callable(cleanup):
+        if owns_engine and callable(cleanup):
             cleanup()
+
+
+def serve(engine_name):
+    engine = None
+    constructor = None
+    try:
+        for line in sys.stdin:
+            request = json.loads(line)
+            job = json.loads(Path(request["job_file"]).read_text(encoding="utf-8"))
+            if job["engine"] != engine_name:
+                raise ValueError("Persistent worker engine mismatch")
+            if engine is None:
+                constructor = job.get("constructor") or {}
+                engine = engine_class(engine_name)(**constructor)
+            elif constructor != (job.get("constructor") or {}):
+                raise ValueError("Persistent worker configuration changed; restart required")
+            run_job(job, engine=engine)
+        return 0
+    except Exception as exc:
+        emit({"event": "error", "error": f"{type(exc).__name__}: {exc}"})
+        return 1
+    finally:
+        if engine is not None:
+            engine.cleanup()
 
 
 def main() -> int:
@@ -142,8 +171,11 @@ def main() -> int:
     parser.add_argument("--engine", required=True)
     parser.add_argument("--job-file")
     parser.add_argument("--check-env", action="store_true")
+    parser.add_argument("--serve", action="store_true")
     args = parser.parse_args()
     configure_cache(args.engine)
+    if args.serve:
+        return serve(args.engine)
     if args.check_env:
         cls = engine_class(args.engine)
         print(f"{args.engine} isolated environment ready: {cls.__name__}")

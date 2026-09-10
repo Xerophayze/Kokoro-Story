@@ -26,6 +26,12 @@ const VOICES_UPDATED_EVENT = window.VOICES_UPDATED_EVENT || 'voices:updated';
 window.VOICES_UPDATED_EVENT = VOICES_UPDATED_EVENT;
 const CHATTERBOX_VOICES_EVENT = window.CHATTERBOX_VOICES_EVENT || 'chatterboxVoices:updated';
 window.CHATTERBOX_VOICES_EVENT = CHATTERBOX_VOICES_EVENT;
+window.addEventListener(CHATTERBOX_VOICES_EVENT, event => {
+    if (!Array.isArray(event?.detail?.voices)) return;
+    chatterboxVoices = event.detail.voices;
+    renderChatterboxVoiceList();
+    updateGlobalPreviewSelections();
+});
 
 // Load voices on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -218,27 +224,42 @@ function setupQwenVoiceCreation() {
     if (saveBtn) {
         saveBtn.addEventListener('click', saveQwenVoicePrompt);
     }
-    const refreshAvailability = event => {
-        const available = event?.detail?.available ?? (window.qwenVoiceDesignAvailable === true);
-        const known = event?.detail?.known ?? (window.qwenVoiceDesignAvailabilityKnown === true);
+    const refreshAvailability = () => {
+        const engine = getActiveVoiceCreationDesignEngine();
+        const config = window.getVoiceDesignEngineConfig?.(engine) || {};
+        const available = window.voiceDesignEngineAvailable?.(engine) === true;
+        const known = window.voiceDesignEngineAvailabilityKnown?.(engine) === true;
         const status = document.getElementById('qwen-voice-status');
         if (!available && status) {
             status.textContent = known
-                ? 'Install Qwen3-TTS under Settings → Engine Settings to enable voice generation.'
-                : 'Checking Qwen3-TTS availability…';
-        } else if (available && status?.textContent?.includes('Qwen3-TTS')) {
+                ? (config.installMessage || 'Install the selected voice-design engine under Settings → Engine Settings.')
+                : `Checking ${config.label || 'voice-design engine'} availability…`;
+        } else if (available && status?.textContent?.startsWith('Install ')) {
             status.textContent = '';
         }
         window.refreshQwenVoiceDesignControls?.();
-        if (available) loadQwenVoiceLanguages();
+        if (available) loadQwenVoiceLanguages(engine);
     };
     window.addEventListener('qwenVoiceDesignAvailabilityChanged', refreshAvailability);
+    window.addEventListener('breezeVoiceDesignAvailabilityChanged', refreshAvailability);
+    window.addEventListener('voiceCreationEngineChanged', refreshAvailability);
     refreshAvailability();
 }
 
-async function loadQwenVoiceLanguages() {
+function getActiveVoiceCreationDesignEngine() {
+    const active = document.querySelector('#voice-creation-engine-toggle [data-voice-engine].active')?.dataset?.voiceEngine;
+    return active === 'breeze' ? 'breeze' : 'qwen3';
+}
+
+async function loadQwenVoiceLanguages(engine = getActiveVoiceCreationDesignEngine()) {
     const select = document.getElementById('qwen-voice-language');
     if (!select) return;
+    if (engine === 'breeze') {
+        const previous = select.value;
+        select.innerHTML = '<option value="English">English</option><option value="Chinese">Chinese</option>';
+        select.value = ['English', 'Chinese'].includes(previous) ? previous : 'English';
+        return;
+    }
     try {
         const response = await fetch('/api/qwen3/metadata');
         const data = await response.json();
@@ -262,6 +283,8 @@ async function loadQwenVoiceLanguages() {
 }
 
 async function generateQwenVoicePreview() {
+    const engine = getActiveVoiceCreationDesignEngine();
+    const engineConfig = window.getVoiceDesignEngineConfig?.(engine) || {};
     const textInput = document.getElementById('qwen-voice-text');
     const instructInput = document.getElementById('qwen-voice-instruct');
     const languageSelect = document.getElementById('qwen-voice-language');
@@ -273,8 +296,8 @@ async function generateQwenVoicePreview() {
     const instruct = instructInput?.value.trim() || '';
     const language = languageSelect?.value || 'Auto';
 
-    if (window.qwenVoiceDesignAvailable !== true) {
-        showToast('Install Qwen3-TTS from Settings → Engine Settings to generate voices.', 'warning');
+    if (window.voiceDesignEngineAvailable?.(engine) !== true) {
+        showToast(engineConfig.installMessage || 'Install the selected voice-design engine to generate voices.', 'warning');
         return;
     }
 
@@ -295,7 +318,7 @@ async function generateQwenVoicePreview() {
     qwenVoicePreview = null;
 
     try {
-        const response = await fetch('/api/qwen3/voice-design/preview', {
+        const response = await fetch(engineConfig.previewUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, instruct, language }),
@@ -304,10 +327,12 @@ async function generateQwenVoicePreview() {
         if (!data.success) {
             throw new Error(data.error || 'Failed to enqueue preview');
         }
-        const result = await pollQwenVoiceTask(data.job_id, status, 'Generating preview...');
+        const result = await pollQwenVoiceTask(data.job_id, status, 'Generating preview...', engineConfig.taskUrl);
         qwenVoicePreview = {
             audio_base64: result.audio_base64,
             mime_type: result.mime_type || 'audio/wav',
+            engine,
+            result,
         };
         if (previewAudio && result.audio_base64) {
             previewAudio.src = `data:${qwenVoicePreview.mime_type};base64,${result.audio_base64}`;
@@ -320,19 +345,21 @@ async function generateQwenVoicePreview() {
             status.textContent = 'Preview ready. Save when you like it.';
         }
     } catch (error) {
-        console.error('Failed to generate Qwen preview', error);
+        console.error('Failed to generate voice-design preview', error);
         showToast(error.message || 'Preview failed', 'error');
         if (status) {
             status.textContent = 'Preview failed.';
         }
     } finally {
         if (generateBtn) {
-            generateBtn.disabled = window.qwenVoiceDesignAvailable !== true;
+            generateBtn.disabled = window.voiceDesignEngineAvailable?.(engine) !== true;
         }
     }
 }
 
 async function saveQwenVoicePrompt() {
+    const engine = qwenVoicePreview?.engine || getActiveVoiceCreationDesignEngine();
+    const engineConfig = window.getVoiceDesignEngineConfig?.(engine) || {};
     const nameInput = document.getElementById('qwen-voice-name');
     const genderSelect = document.getElementById('qwen-voice-gender');
     const languageSelect = document.getElementById('qwen-voice-language');
@@ -370,7 +397,8 @@ async function saveQwenVoicePrompt() {
     }
 
     try {
-        const response = await fetch('/api/qwen3/voice-design/save', {
+        const previewResult = qwenVoicePreview.result || {};
+        const response = await fetch(engineConfig.saveUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -381,14 +409,19 @@ async function saveQwenVoicePrompt() {
                 text,
                 instruct,
                 audio_base64: qwenVoicePreview.audio_base64,
+                engine,
+                model: previewResult.model,
+                seed: previewResult.seed,
+                sampling_parameters: previewResult.sampling_parameters,
+                wav_sha256: previewResult.wav_sha256,
             }),
         });
         const data = await response.json();
         if (!data.success) {
             throw new Error(data.error || 'Failed to enqueue save');
         }
-        await pollQwenVoiceTask(data.job_id, status, 'Saving voice prompt...');
-        showToast('Qwen voice prompt saved.', 'success');
+        await pollQwenVoiceTask(data.job_id, status, 'Saving voice prompt...', engineConfig.taskUrl);
+        showToast(`${engineConfig.label || 'Voice'} prompt saved.`, 'success');
         if (status) {
             status.textContent = 'Saved to Voice Prompts.';
         }
@@ -400,7 +433,7 @@ async function saveQwenVoicePrompt() {
         }
         await loadChatterboxVoices();
     } catch (error) {
-        console.error('Failed to save Qwen voice prompt', error);
+        console.error('Failed to save voice prompt', error);
         showToast(error.message || 'Save failed', 'error');
         if (status) {
             status.textContent = 'Save failed.';
@@ -411,7 +444,7 @@ async function saveQwenVoicePrompt() {
     }
 }
 
-async function pollQwenVoiceTask(taskId, statusEl, message) {
+async function pollQwenVoiceTask(taskId, statusEl, message, taskUrl = '/api/qwen3/voice-design/tasks') {
     if (!taskId) {
         throw new Error('Missing task id for queued request.');
     }
@@ -421,7 +454,10 @@ async function pollQwenVoiceTask(taskId, statusEl, message) {
         if (statusEl && message) {
             statusEl.textContent = message;
         }
-        const response = await fetch(`/api/qwen3/voice-design/tasks/${taskId}`);
+        const taskEndpoint = typeof taskUrl === 'function'
+            ? taskUrl(taskId)
+            : `${String(taskUrl).replace(/\/$/, '')}/${encodeURIComponent(taskId)}`;
+        const response = await fetch(taskEndpoint);
         const data = await response.json();
         if (!data.success) {
             throw new Error(data.error || 'Failed to fetch task status');
@@ -2395,27 +2431,45 @@ function getVoiceInfo(voiceName) {
 }
 
 // ---------------------------------------------------------------------------
-// Voice Creation engine toggle (Qwen3 / OmniVoice)
+// Voice Creation engine toggle (Qwen3 / Breeze / OmniVoice)
 
 function setupVoiceCreationEngineToggle() {
     const qwen3Btn = document.getElementById('voice-creation-qwen3-btn');
+    const breezeBtn = document.getElementById('voice-creation-breeze-btn');
     const omniBtn = document.getElementById('voice-creation-omnivoice-btn');
     const qwen3Fields = document.getElementById('voice-creation-qwen3-fields');
     const omniFields = document.getElementById('voice-creation-omnivoice-fields');
-    if (!qwen3Btn || !omniBtn) return;
+    if (!qwen3Btn || !breezeBtn || !omniBtn) return;
 
-    qwen3Btn.addEventListener('click', () => {
-        qwen3Btn.classList.add('active');
-        omniBtn.classList.remove('active');
-        if (qwen3Fields) qwen3Fields.style.display = '';
-        if (omniFields) omniFields.style.display = 'none';
-    });
+    const activate = engine => {
+        qwen3Btn.classList.toggle('active', engine === 'qwen3');
+        breezeBtn.classList.toggle('active', engine === 'breeze');
+        omniBtn.classList.toggle('active', engine === 'omnivoice');
+        if (qwen3Fields) qwen3Fields.style.display = engine === 'omnivoice' ? 'none' : '';
+        if (omniFields) omniFields.style.display = engine === 'omnivoice' ? '' : 'none';
+        if (engine !== 'omnivoice') {
+            qwenVoicePreview = null;
+            const preview = document.getElementById('qwen-voice-preview');
+            if (preview) {
+                preview.removeAttribute('src');
+                preview.load();
+            }
+            const save = document.getElementById('qwen-voice-save-btn');
+            if (save) save.disabled = true;
+            loadQwenVoiceLanguages(engine);
+        }
+        window.dispatchEvent(new CustomEvent('voiceCreationEngineChanged', { detail: { engine } }));
+        window.refreshQwenVoiceDesignControls?.();
+    };
 
-    omniBtn.addEventListener('click', () => {
-        omniBtn.classList.add('active');
-        qwen3Btn.classList.remove('active');
-        if (omniFields) omniFields.style.display = '';
-        if (qwen3Fields) qwen3Fields.style.display = 'none';
+    qwen3Btn.addEventListener('click', () => activate('qwen3'));
+    breezeBtn.addEventListener('click', () => activate('breeze'));
+    omniBtn.addEventListener('click', () => activate('omnivoice'));
+
+    document.getElementById('voice-creation-open-engine-settings')?.addEventListener('click', () => {
+        const engine = getActiveVoiceCreationDesignEngine();
+        if (engine === 'breeze') window.openBreezeEngineSettings?.();
+        else window.openQwenEngineSettings?.();
     });
 }
 

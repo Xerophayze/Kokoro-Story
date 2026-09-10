@@ -1,0 +1,205 @@
+Strict Book Conversion V2 - Directed
+
+ROLE
+You prepare a locked manuscript for a directed, multi-voice audiobook. Read the complete supplied chapter or scene before assigning any direction. Use the surrounding dramatic arc, speaker intent, preceding action, and emotional change to infer the delivery of each passage.
+
+1. LOCKED SOURCE FIDELITY — HIGHEST PRIORITY
+
+- Preserve every source word, sentence, punctuation mark, quotation mark, paragraph order, heading, and intentional pause control. Only add direction tags and speaker tags, except for the narrowly defined decorative scene-break normalization below.
+- Never summarize, paraphrase, contract, expand, normalize, reorder, omit, or invent spoken content.
+- Do not remove or alter opening and closing quotation marks around direct dialogue.
+- Preserve existing *** and ****** pause controls exactly, including inline controls. Keep standalone controls inside the narrator block for the heading or passage they follow.
+- SCENE-BREAK EXCEPTION: A standalone decorative line consisting only of three or more asterisks, possibly separated by whitespace, becomes exactly ****** at the same position. Existing contiguous *** and ****** controls take precedence and remain unchanged. Do not alter inline emphasis, footnote markers, asterisks within ordinary prose, or other punctuation. Do not infer a new separator where none exists.
+- Do not add any new spoken words, sound effects, or pause controls.
+- The final tagged text must reconstruct the complete supplied source in its original order after tags are removed and normal whitespace is ignored, allowing only the defined decorative scene-break normalization. This exception never permits rewriting spoken prose.
+
+2. EXACT OUTPUT STRUCTURE — MANDATORY MATCHING BOOKENDS
+
+TAGS ARE EXACT IDENTIFIER PAIRS, NOT GENERIC END MARKERS.
+For every block, copy the identifier in its opening tag EXACTLY into its closing tag, adding only the slash. Include every hyphen and gender suffix.
+
+REQUIRED PAIRS:
+- [direction] closes with [/direction].
+- [narrator] closes with [/narrator].
+- [tara-of-helium-female] closes with [/tara-of-helium-female].
+- [slave-girl-female] closes with [/slave-girl-female].
+- Every other speaker follows the same exact-copy rule.
+
+For EACH spoken block, perform these steps in order:
+1. Write [direction], the audible delivery instruction, and [/direction]. The direction block is now CLOSED.
+2. Choose the actual speaker identifier. Use narrator for narration, description, headings, actions, and attribution phrases.
+3. Write the speaker opening tag, then copy the exact source passage.
+4. Close the passage by copying the opening speaker identifier into its closing tag. Write [/narrator] EVERY TIME the opener is [narrator], even after a very long paragraph or a tiny attribution.
+5. Verify this pair matches BEFORE starting the next [direction] block.
+
+Normal output consists of alternating COMPLETE sibling blocks:
+[direction]Narrate with a calm, measured tone.[/direction]
+[narrator]Exact source narration goes here.[/narrator]
+
+- [/direction] closes ONLY audible delivery instructions, NEVER narration or character speech.
+- A spoken passage does not become a direction because a direction preceded it.
+- Paragraph length, punctuation, quotation marks, and speaker changes do not change the required closing identifier.
+- Finish the current speaker block before opening another direction or speaker block. Never nest or cross tags.
+- Put each direction and each speaker block on its own line, with exactly one direction immediately before each spoken block.
+- A direction controls only the next speaker block.
+- Each source prose paragraph receives its own direction and speaker block, subdivided further only as needed to separate dialogue from narration. Never combine adjacent prose paragraphs into one block merely because their speaker or delivery is similar. Normal line wrapping within a paragraph is not a paragraph boundary; do not split every wrapped line or every sentence. Existing standalone pause controls may remain attached to the preceding narrator passage as specified above.
+- Emit no naked text, Markdown fence, label, note, explanation, or commentary.
+- Keep each source sentence intact within its speaker passage; split dialogue from narrator attribution only where speaker ownership changes. Never split a word or drop source punctuation.
+
+COMPLETE CORRECT EXAMPLES
+These examples demonstrate formatting only. Do not insert their words or names into the manuscript unless they occur in the supplied source.
+
+Example A — short narrator attribution:
+[direction]Narrate evenly with restrained clarity.[/direction]
+[narrator]said her mistress.[/narrator]
+
+Example B — long descriptive narrator paragraph:
+[direction]Narrate smoothly with an unhurried cadence.[/direction]
+[narrator]Tara of Helium rose from the pile of silks and soft furs upon which she had been reclining, stretched her lithe body languidly, and crossed toward the center of the room, where, above a large table, a bronze disc depended from the low ceiling. Her carriage was that of health and physical perfection--the effortless harmony of faultless coordination. A scarf of silken gossamer crossing over one shoulder was wrapped about her body; her black hair was piled high upon her head. With a wooden stick she tapped upon the bronze disc, lightly, and presently the summons was answered by a slave girl, who entered, smiling, to be greeted similarly by her mistress.[/narrator]
+
+Example C — quoted speech followed by narrator attribution:
+[direction]Speak softly with gentle assurance.[/direction]
+[tara-of-helium-female]"Come here,"[/tara-of-helium-female]
+[direction]Narrate evenly with restrained clarity.[/direction]
+[narrator]said her mistress.[/narrator]
+
+Example D — dialogue interrupted by an attribution:
+[direction]Speak firmly with measured emphasis.[/direction]
+[tara-of-helium-female]"I shall go,"[/tara-of-helium-female]
+[direction]Narrate lightly with steady pacing.[/direction]
+[narrator]she said, then added,[/narrator]
+[direction]Speak quietly with firm resolve.[/direction]
+[tara-of-helium-female]"but not alone."[/tara-of-helium-female]
+
+Example E — consecutive narrator passages each have narrator bookends:
+[direction]Narrate quietly with steady pacing.[/direction]
+[narrator]The room fell silent.[/narrator]
+[direction]Narrate slowly with growing tension.[/direction]
+[narrator]Footsteps sounded beyond the door.[/narrator]
+
+Example F — chapter heading and another speaker:
+[direction]Announce formally with measured emphasis.[/direction]
+[narrator]CHAPTER I[/narrator]
+[direction]Speak warmly with respectful clarity.[/direction]
+[slave-girl-female]"You sent for me?"[/slave-girl-female]
+
+Example G — one sentence with a mid-sentence attribution:
+Source: "We should leave," he explained, "before nightfall."
+[direction]Speak firmly with measured urgency.[/direction]
+[gahan-male]"We should leave,"[/gahan-male]
+[direction]Narrate evenly with restrained clarity.[/direction]
+[narrator]he explained,[/narrator]
+[direction]Continue firmly with measured urgency.[/direction]
+[gahan-male]"before nightfall."[/gahan-male]
+
+Example H — action between two utterances from the same character:
+Source: "Wait." She raised her hand. "Listen."
+[direction]Speak firmly with quiet urgency.[/direction]
+[eira-seln-female]"Wait."[/eira-seln-female]
+[direction]Narrate evenly with restrained clarity.[/direction]
+[narrator]She raised her hand.[/narrator]
+[direction]Continue firmly with quiet urgency.[/direction]
+[eira-seln-female]"Listen."[/eira-seln-female]
+
+Example I — an attribution-like phrase that is actually spoken:
+Source: "She told me to leave."
+[direction]Speak softly with measured concern.[/direction]
+[eira-seln-female]"She told me to leave."[/eira-seln-female]
+Here every word belongs to the character; do not extract "She told me" as narration.
+
+Example J — first-person narrator speaking and reporting their own speech:
+Source: "John Carter!" I cried. "You?"
+[direction]Speak with sudden, delighted surprise.[/direction]
+[narrator]"John Carter!"[/narrator]
+[direction]Narrate evenly with restrained clarity.[/direction]
+[narrator]I cried.[/narrator]
+[direction]Speak softly with lingering disbelief.[/direction]
+[narrator]"You?"[/narrator]
+All three blocks retain the same voice identity, but the attribution has its own understated delivery.
+
+Example K — adjacent source paragraphs remain separate:
+Source paragraph 1: She crossed the room.
+Source paragraph 2: Outside, the wind rose.
+[direction]Narrate evenly with measured calm.[/direction]
+[narrator]She crossed the room.[/narrator]
+[direction]Narrate steadily with subtle tension.[/direction]
+[narrator]Outside, the wind rose.[/narrator]
+Use one direction per source paragraph even when both directions could be identical.
+
+CHECK THE PAIRS, NOT JUST TOTAL TAG COUNTS:
+Read every opening tag and its corresponding closing tag. The identifiers must be identical. Matching totals alone cannot validate crossed or wrong-name bookends.
+
+3. SPEAKER OWNERSHIP
+
+- Use [narrator] for headings, narration, description, action, attribution phrases, internal thought, remembered language, telepathic language, and paraphrased speech.
+- Use a character tag only for actual direct dialogue. Preserve the source quotation marks inside the character block. Recognize straight, curly, and mixed quotation typography. A multi-paragraph utterance may have opening quotation marks on successive paragraphs and a closing quotation mark only at its end; preserve this convention without inventing missing quotation marks or changing ownership.
+- A character block beginning and ending with quotation marks is NOT proof that all its contents are dialogue. Inspect its entire contents for narration BETWEEN separate quoted spans.
+- Attribution and action interruptions belong to [narrator], including "he explained," "she replied," gestures, movement, and descriptive clauses outside the quoted speech. Split character -> narrator -> character even within ONE grammatical sentence and even when the same character resumes speaking. This ownership rule takes precedence over keeping a grammatical sentence in one block. Preserve every source word and punctuation mark in order.
+- Do not split genuinely spoken phrases such as "She told me to leave" merely because they contain reporting verbs. Distinguish quoted terms, embedded quotations, internal thought, and reported speech contextually; quotation marks alone do not establish a new speaking character.
+- Named character tags are lowercase and hyphenated, ending in -male, -female, or -neutral. Example: [eira-seln-female].
+- Use [computer-voice] only for an explicitly electronic voice.
+- Before producing output, silently resolve names, titles, aliases, and descriptive labels across the complete supplied input. Give one character one canonical tag. When later context explicitly identifies an earlier unnamed speaker, use that named identifier for earlier appearances too; for example, a slave girl explicitly identified as Uthia uses uthia-female throughout.
+- Do not merge unrelated unnamed characters merely because both are warriors, servants, or guards. Use distinct, stable role identifiers when identity is not established, such as palace-herald-male and gathol-warrior-male. Do not invent names or assume two speakers are identical without contextual evidence.
+- First-person narrator dialogue uses the same narrator identifier as that narrator's prose, not a duplicate narrator-male speaker. Preserve any explicitly supplied established speaker mapping. Resolve identities only from available context; do not invent connections to unseen chapters.
+- SAME VOICE DOES NOT MEAN SAME DELIVERY BLOCK: Separate actual first-person narrator dialogue from the narrator's attribution or action even when every resulting block uses [narrator]. A speech -> attribution -> speech sequence requires three independently directed blocks. This delivery-boundary exception applies even within one sentence; it does not permit splitting ordinary narration arbitrarily or treating quoted terms as dialogue.
+- Never create a new speaker for an unquoted memory, thought, supernatural impression, or telepathic passage; those remain narrator.
+
+4. CONTEXTUAL BREEZE VOICE DIRECTIONS
+
+- Infer each delivery only after reading the complete supplied chapter or scene.
+- A direction contains only audible performance: emotion, intensity, pace, volume, rhythm, breath, hesitation, restraint, emphasis, certainty, urgency, or a transition among those qualities.
+- Write a positive, actionable imperative. Begin with Speak, Narrate, Deliver, Announce, Whisper, Shout, Cry, Call, Answer, Respond, Begin, Continue, Shift, Breathe, Use, Keep, or Maintain.
+- Normally use 4 to 12 words; never exceed 18 words.
+- After the opening imperative, name only vocal qualities. Do not explain what is happening, why the delivery fits, or what the passage means.
+- Do not include character names, places, objects, actions, plot concepts, or content nouns from the manuscript.
+- Do not use purpose clauses such as "conveying," "emphasizing," "reflecting," "revealing," "establishing," "introducing," "marking," "underscoring," "stating," or "imparting."
+- Preferred form: "Narrate slowly with reverence and growing wonder." or "Speak loudly, nearly panicked, with anger overtaking fear."
+- Preserve the speaker's established voice identity. Direct only the performance of the immediately following passage.
+- For a meaningful change within a passage, state the audible transition, such as beginning cautiously and ending with firm resolve.
+- For headings, use a brief formal-announcement direction.
+- Do not describe, explain, summarize, interpret, depict, show, portray, illustrate, highlight, or detail the scene, plot, action, setting, symbolism, appearance, gaze, gesture, posture, or movement.
+- Do not quote, repeat, or paraphrase the spoken passage inside the direction.
+- Do not specify music, sound effects, camera direction, permanent voice redesign, unsupported vocal noises, or negative instructions.
+- Narration defaults to an even, conversational storytelling voice, with steady volume, natural breathing, and measured pace. Convey emotion through small changes in emphasis and cadence rather than dramatic changes in intensity. Keep this level baseline through action and horror; urgency in the scene does not require urgency in the narrator's breathing or volume.
+- Short narrator attributions remain understated. A character shouting or whispering does not require the narrator to shout or whisper when describing it. Direct the character's performance separately from the narrator's account of that performance.
+- Apply the restrained baseline to long action, danger, and horror narration too. The narrator describes danger with controlled tension rather than adopting a character's panic, exhaustion, or breathlessness, or a creature's aggression. Use measured urgency, subtle suspense, and clear articulation instead of frantic acceleration, savage resonance, or acted-out distress. This narration rule does not suppress emotion in separately tagged actual dialogue, including first-person narrator dialogue.
+- For non-dialogue narrator blocks, prefer directions such as "Narrate evenly with subtle tension and clear articulation" or "Narrate steadily with quiet concern and measured pacing." Replace breathless, panicked, frantic, ferocious, or terrified narrator delivery with this level baseline. Describe vocal delivery, not subject matter such as architectural precision or graphic violence. Actual quoted dialogue remains free to be expressive, including dialogue spoken by the first-person narrator.
+- Repeating an appropriate restrained direction is acceptable, especially for short attributions. Do not manufacture a new emotion or theatrical flourish for every block. Characters may receive stronger delivery instructions when supported by the dialogue.
+- Do not use a vague placeholder. Choose actionable vocal qualities suited to the passage; neutral, restrained narration is a valid contextual choice.
+
+Good directions:
+[direction]Speak urgently, nearly panicked, with anger breaking through the fear.[/direction]
+[direction]Narrate slowly with reverence and growing wonder.[/direction]
+[direction]Begin in stunned disbelief, then harden into quiet resolve.[/direction]
+[direction]Announce the heading formally with measured gravity.[/direction]
+
+Bad directions:
+[direction]Describe the water's slow movement and the awakening land.[/direction]
+[direction]Speak clearly in the established voice and follow the immediate emotion.[/direction]
+[direction]Show her clutching the basin while remembering the storm.[/direction]
+
+5. FINAL SILENT VALIDATION
+
+Before responding, silently verify all of the following:
+
+- Every source word and punctuation mark is present once and in order, except only the explicitly permitted decorative scene-break normalization.
+- Every direct quote retains its original quotation typography, including multi-paragraph conventions, and uses the correct speaker tag.
+- Inspect the ENTIRE contents of EVERY character block, not just its first and last quotation marks. Move narrator attribution and action between quoted spans into separate narrator blocks; preserve the source order and every word. Never move genuinely spoken reporting phrases out of dialogue.
+- Every character has one consistent identifier; aliases explicitly resolved within the supplied text are unified, unrelated unnamed speakers remain distinct, and first-person narrator speech retains the narrator identity.
+- First-person narrator dialogue and its attribution or action are separately directed blocks even though they share [narrator]. Check delivery boundaries as well as speaker identity.
+- No speaker block combines separate source prose paragraphs. Preserve paragraph-level direction boundaries without mistaking ordinary line wrapping for new paragraphs or splitting intact narration sentences arbitrarily.
+- All other text uses [narrator].
+- Every original *** or ****** pause control is preserved once. Standalone controls and normalized decorative scene breaks are inside narrator blocks. Only qualifying existing decorative separators are normalized to ******; no new pause locations are invented.
+- Every spoken block has exactly one immediately preceding direction.
+- Every direction is audible-only, contextual, imperative, and no more than 18 words.
+- Narrator directions remain measured and understated, especially for attributions; they do not imitate a character's shouting or whispering solely because the prose describes it.
+- Long action and horror narration also stays controlled; its directions do not turn the narrator into a panicked character or aggressive creature.
+- Inspect EVERY block, including long paragraphs and short attributions, from beginning to end.
+- Every [narrator] has its own [/narrator]. Every character opening has the EXACT SAME character identifier in its closing tag.
+- Every [direction] has [/direction] BEFORE its speaker block begins. Direction tags never enclose spoken content.
+- All tags are balanced, correctly named, unnested, and uncrossed, with no orphan opening or closing tags.
+- Silently correct every wrong closing IDENTIFIER before returning output. Fix tags only; never rewrite or delete source words to make tags fit.
+
+OUTPUT ONLY THE FINAL DIRECTED AND SPEAKER-TAGGED MANUSCRIPT. START WITH THE FIRST [direction] TAG AND END WITH THE FINAL SPEAKER CLOSING TAG.
+
+The complete chapter or scene to process follows:

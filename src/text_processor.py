@@ -5,6 +5,7 @@ import re
 from typing import List, Dict, Tuple
 
 from src.pause_markers import pause_seconds_for_text, split_text_and_pause_markers
+from src.tag_validation import speaker_names
 
 
 class TextProcessor:
@@ -49,8 +50,8 @@ class TextProcessor:
         self.allow_sentence_overflow = bool(allow_sentence_overflow)
         # Support both [speakerN] and [name] formats (e.g., [narrator], [john], etc.)
         self.speaker_pattern = r'\[([a-zA-Z0-9_\-]+)\](.*?)\[/\1\]'
-        # Emotion tag pattern: [emotion]...[/emotion]
-        self.emotion_pattern = r'\[emotion\](.*?)\[/emotion\]'
+        # [direction] is the preferred form; [emotion] remains compatible.
+        self.emotion_pattern = r'\[(?:emotion|direction)\](.*?)\[/(?:emotion|direction)\]'
     
     @staticmethod
     def _normalize_speaker_name(name: str) -> str:
@@ -67,10 +68,10 @@ class TextProcessor:
         Returns:
             bool: True if speaker tags found
         """
-        return bool(re.search(self.speaker_pattern, text, re.DOTALL))
+        return bool(speaker_names(text))
         
     # Reserved tag names that should not be treated as speakers
-    RESERVED_TAGS = {'emotion'}
+    RESERVED_TAGS = {'emotion', 'direction'}
     
     def extract_speakers(self, text: str) -> List[str]:
         """
@@ -82,7 +83,8 @@ class TextProcessor:
         Returns:
             List of unique speaker names (e.g., ["narrator", "speaker1", "john"])
         """
-        matches = re.findall(r'\[([a-zA-Z0-9_\-]+)\](?:.*?)\[/\1\]', text, re.DOTALL)
+        # Detection must still work while closing tags are missing or mistyped.
+        matches = speaker_names(text)
         # Preserve order of first appearance while removing duplicates
         seen = set()
         unique_speakers = []
@@ -113,9 +115,9 @@ class TextProcessor:
         # Build a combined pattern that captures:
         # 1. Optional emotion tag before speaker tag
         # 2. Speaker tag with content
-        # Pattern: (?:\[emotion\](.*?)\[/emotion\]\s*)?\[speaker\]content[/speaker]
+        # Pattern: optional [direction] or legacy [emotion], then speaker content.
         combined_pattern = (
-            r'(?:\[emotion\](.*?)\[/emotion\]\s*)?'  # Optional emotion tag (group 1)
+            r'(?:\[(?:emotion|direction)\](.*?)\[/(?:emotion|direction)\]\s*)?'
             r'\[([a-zA-Z0-9_\-]+)\]'                  # Speaker opening tag (group 2)
             r'(.*?)'                                   # Speaker content (group 3)
             r'\[/\2\]'                                 # Speaker closing tag (backreference)
@@ -136,14 +138,18 @@ class TextProcessor:
             speaker_name = self._normalize_speaker_name(match.group(2))
             speaker_text = match.group(3).strip()
             
-            if speaker_text and speaker_name:
+            # Orphan control blocks (e.g. at a section boundary) must never
+            # become a speaker and be synthesized as narration.
+            if speaker_text and speaker_name and speaker_name not in self.RESERVED_TAGS:
                 segment = {
                     "speaker": speaker_name,
                     "text": speaker_text
                 }
                 # Add emotion/instruction if present
                 if emotion:
-                    segment["emotion"] = emotion.strip()
+                    instruction = emotion.strip()
+                    segment["emotion"] = instruction
+                    segment["delivery_instruction"] = instruction
                 segments.append(segment)
                 last_speaker = speaker_name
             cursor = match.end()
@@ -402,6 +408,8 @@ class TextProcessor:
                 # Pass through emotion if present
                 if "emotion" in segment:
                     processed_segment["emotion"] = segment["emotion"]
+                if "delivery_instruction" in segment:
+                    processed_segment["delivery_instruction"] = segment["delivery_instruction"]
                 processed_segments.append(processed_segment)
                 
             return processed_segments
